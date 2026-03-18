@@ -50,7 +50,9 @@ export type ServerMessage =
   | { type: "furnitureAssetsLoaded"; catalog: unknown[]; sprites: Record<string, unknown> }
   | { type: "layoutLoaded"; layout: unknown; version: number }
   | { type: "settingsLoaded"; soundEnabled: boolean }
-  | { type: "agentNamesLoaded"; names: Record<number, string> };
+  | { type: "agentNamesLoaded"; names: Record<number, string> }
+  | { type: "userMessageDelivered"; agentId: number; messageId: string }
+  | { type: "permissionActionRecorded"; agentId: number; action: string };
 
 // Messages sent from client to server
 export type ClientMessage =
@@ -58,4 +60,6 @@ export type ClientMessage =
   | { type: "webviewReady" }
   | { type: "saveLayout"; layout: unknown }
   | { type: "saveAgentSeats"; seats: Record<number, { palette: number; hueShift: number; seatId: string | null }> }
-  | { type: "saveAgentNames"; names: Record<number, string> };
+  | { type: "saveAgentNames"; names: Record<number, string> }
+  | { type: "userMessage"; agentId: number; sessionId: string; text: string }
+  | { type: "permissionAction"; agentId: number; sessionId: string; action: string };

@@ -4,7 +4,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { join, dirname } from "path";
 import { homedir } from "os";
 import { fileURLToPath } from "url";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from "fs";
 import { JsonlWatcher, type WatchedFile } from "./watcher.js";
 import { processTranscriptLine, clearAgentTimers } from "./parser.js";
 import {
@@ -254,6 +254,48 @@ wss.on("connection", (ws) => {
         } catch (err) {
           console.error(`[Server] Failed to save agent names: ${err instanceof Error ? err.message : err}`);
         }
+      } else if (msg.type === "userMessage") {
+        const { agentId, sessionId, text } = msg as { agentId: number; sessionId: string; text: string };
+        const agent = Array.from(agents.values()).find((a) => a.id === agentId);
+        const messageId = Date.now().toString();
+        try {
+          // Append to chat log
+          const chatDir = join(persistDir, "chat");
+          mkdirSync(chatDir, { recursive: true });
+          const chatFile = join(chatDir, `${sessionId}.jsonl`);
+          const entry = JSON.stringify({ timestamp: Date.now(), text, role: "user" }) + "\n";
+          appendFileSync(chatFile, entry, "utf-8");
+
+          // Write inbox markdown for Claude Code context
+          if (agent) {
+            const allLines = existsSync(chatFile) ? readFileSync(chatFile, "utf-8").trim().split("\n") : [];
+            const last10 = allLines.slice(-10);
+            const parsed = last10.map((l) => {
+              try { return JSON.parse(l) as { timestamp: number; text: string; role: string }; } catch { return null; }
+            }).filter(Boolean) as { timestamp: number; text: string; role: string }[];
+            const md = "# User Messages\n\n" + parsed.map((m) =>
+              `**[${new Date(m.timestamp).toISOString()}] ${m.role}:** ${m.text}`
+            ).join("\n\n");
+            writeFileSync(join(agent.projectDir, ".pixel-agents-inbox.md"), md, "utf-8");
+          }
+        } catch (err) {
+          console.error(`[Server] Failed to handle userMessage: ${err instanceof Error ? err.message : err}`);
+        }
+        broadcast({ type: "userMessageDelivered", agentId, messageId });
+      } else if (msg.type === "permissionAction") {
+        const { agentId, sessionId, action } = msg as { agentId: number; sessionId: string; action: string };
+        try {
+          const permDir = join(persistDir, "permissions");
+          mkdirSync(permDir, { recursive: true });
+          writeFileSync(
+            join(permDir, `${sessionId}.json`),
+            JSON.stringify({ action, timestamp: Date.now(), agentId }),
+            "utf-8",
+          );
+        } catch (err) {
+          console.error(`[Server] Failed to handle permissionAction: ${err instanceof Error ? err.message : err}`);
+        }
+        broadcast({ type: "permissionActionRecorded", agentId, action });
       }
     } catch {
       /* ignore invalid messages */
