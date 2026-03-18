@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import type { ToolActivity } from '../types.js'
 import type { OfficeState } from '../engine/officeState.js'
-import type { SubagentCharacter } from '../../hooks/useExtensionMessages.js'
+import type { SubagentCharacter, AgentMessage } from '../../hooks/useExtensionMessages.js'
 import { TILE_SIZE, CharacterState } from '../types.js'
 import { TOOL_OVERLAY_VERTICAL_OFFSET, CHARACTER_SITTING_OFFSET_PX } from '../../constants.js'
+import { AgentChatDialog } from '../../components/AgentChatDialog.js'
 
 interface ToolOverlayProps {
   officeState: OfficeState
@@ -14,6 +15,9 @@ interface ToolOverlayProps {
   zoom: number
   panRef: React.RefObject<{ x: number; y: number }>
   onCloseAgent: (id: number) => void
+  agentMessages: Record<number, AgentMessage[]>
+  agentNames: Record<number, string>
+  onRenameAgent: (id: number, name: string) => void
 }
 
 /** Derive a short human-readable activity string from tools/status */
@@ -49,6 +53,9 @@ export function ToolOverlay({
   zoom,
   panRef,
   onCloseAgent,
+  agentMessages,
+  agentNames,
+  onRenameAgent,
 }: ToolOverlayProps) {
   const [, setTick] = useState(0)
   useEffect(() => {
@@ -95,8 +102,8 @@ export function ToolOverlay({
         const screenX = (deviceOffsetX + ch.x * zoom) / dpr
         const screenY = (deviceOffsetY + (ch.y + sittingOffset - TOOL_OVERLAY_VERTICAL_OFFSET) * zoom) / dpr
 
-        // Always show name label; show activity details on hover/select
-        const displayName = ch.folderName || (isSub ? 'Subtask' : `Agent #${id}`)
+        // Custom name takes priority, then folderName, then default
+        const displayName = agentNames[id] || ch.folderName || (isSub ? 'Subtask' : `Agent #${id}`)
 
         // Get activity text (only needed when showing details)
         let activityText = ''
@@ -126,6 +133,26 @@ export function ToolOverlay({
           }
         }
 
+        // When selected, show the full chat dialog instead of plain info box
+        if (isSelected) {
+          return (
+            <AgentChatDialog
+              key={id}
+              id={id}
+              isSub={isSub}
+              screenX={screenX}
+              screenY={screenY}
+              displayName={displayName}
+              activityText={activityText}
+              dotColor={dotColor}
+              isActive={ch.isActive}
+              messages={agentMessages[isSub ? (ch.parentAgentId ?? id) : id] || []}
+              onClose={() => onCloseAgent(id)}
+              onRename={(name) => onRenameAgent(id, name)}
+            />
+          )
+        }
+
         return (
           <div
             key={id}
@@ -137,22 +164,20 @@ export function ToolOverlay({
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
-              pointerEvents: isSelected ? 'auto' : 'none',
-              zIndex: isSelected ? 'var(--pixel-overlay-selected-z)' : 'var(--pixel-overlay-z)',
+              pointerEvents: 'none',
+              zIndex: isHovered ? 'var(--pixel-overlay-selected-z)' : 'var(--pixel-overlay-z)',
             }}
           >
-            {showDetails ? (
+            {isHovered ? (
               <div
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: 5,
                   background: 'var(--pixel-bg)',
-                  border: isSelected
-                    ? '2px solid var(--pixel-border-light)'
-                    : '2px solid var(--pixel-border)',
+                  border: '2px solid var(--pixel-border)',
                   borderRadius: 0,
-                  padding: isSelected ? '3px 6px 3px 8px' : '3px 8px',
+                  padding: '3px 8px',
                   boxShadow: 'var(--pixel-shadow)',
                   whiteSpace: 'nowrap',
                   maxWidth: 220,
@@ -195,34 +220,6 @@ export function ToolOverlay({
                     {displayName}
                   </span>
                 </div>
-                {isSelected && !isSub && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onCloseAgent(id)
-                    }}
-                    title="Close agent"
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--pixel-close-text)',
-                      cursor: 'pointer',
-                      padding: '0 2px',
-                      fontSize: '26px',
-                      lineHeight: 1,
-                      marginLeft: 2,
-                      flexShrink: 0,
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLElement).style.color = 'var(--pixel-close-hover)'
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLElement).style.color = 'var(--pixel-close-text)'
-                    }}
-                  >
-                    ×
-                  </button>
-                )}
               </div>
             ) : (
               <div

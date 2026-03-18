@@ -1,5 +1,5 @@
 import { TileType, TILE_SIZE, CharacterState } from '../types.js'
-import type { TileType as TileTypeVal, FurnitureInstance, Character, SpriteData, Seat, FloorColor } from '../types.js'
+import type { TileType as TileTypeVal, FurnitureInstance, Character, SpriteSource, Seat, FloorColor } from '../types.js'
 import { getCachedSprite, getOutlineSprite } from '../sprites/spriteCache.js'
 import { getCharacterSprites, BUBBLE_PERMISSION_SPRITE, BUBBLE_WAITING_SPRITE } from '../sprites/spriteData.js'
 import { getCharacterSprite } from './characters.js'
@@ -317,7 +317,7 @@ export function renderGhostBorder(
 
 export function renderGhostPreview(
   ctx: CanvasRenderingContext2D,
-  sprite: SpriteData,
+  sprite: SpriteSource,
   col: number,
   row: number,
   valid: boolean,
@@ -496,7 +496,7 @@ export type RotateButtonBounds = ButtonBounds
 
 export interface EditorRenderState {
   showGrid: boolean
-  ghostSprite: SpriteData | null
+  ghostSprite: SpriteSource | null
   ghostCol: number
   ghostRow: number
   ghostValid: boolean

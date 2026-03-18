@@ -49,11 +49,13 @@ export type ServerMessage =
   | { type: "wallTilesLoaded"; sprites: unknown[] }
   | { type: "furnitureAssetsLoaded"; catalog: unknown[]; sprites: Record<string, unknown> }
   | { type: "layoutLoaded"; layout: unknown; version: number }
-  | { type: "settingsLoaded"; soundEnabled: boolean };
+  | { type: "settingsLoaded"; soundEnabled: boolean }
+  | { type: "agentNamesLoaded"; names: Record<number, string> };
 
 // Messages sent from client to server
 export type ClientMessage =
   | { type: "ready" }
   | { type: "webviewReady" }
   | { type: "saveLayout"; layout: unknown }
-  | { type: "saveAgentSeats"; seats: Record<number, { palette: number; hueShift: number; seatId: string | null }> };
+  | { type: "saveAgentSeats"; seats: Record<number, { palette: number; hueShift: number; seatId: string | null }> }
+  | { type: "saveAgentNames"; names: Record<number, string> };

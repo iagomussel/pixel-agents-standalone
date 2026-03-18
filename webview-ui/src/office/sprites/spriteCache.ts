@@ -1,6 +1,12 @@
-import type { SpriteData } from '../types.js'
+import type { SpriteData, SpriteSource, PngSpriteRef } from '../types.js'
+
+export function isPngRef(sprite: SpriteSource): sprite is PngSpriteRef {
+  return (sprite as PngSpriteRef)._png === true
+}
 
 const zoomCaches = new Map<number, WeakMap<SpriteData, HTMLCanvasElement>>()
+// Separate cache for PNG sprites (keyed by HTMLImageElement)
+const pngZoomCaches = new Map<number, Map<HTMLImageElement, HTMLCanvasElement>>()
 
 // ── Outline sprite generation ─────────────────────────────────
 
@@ -45,7 +51,31 @@ export function getOutlineSprite(sprite: SpriteData): SpriteData {
   return outline
 }
 
-export function getCachedSprite(sprite: SpriteData, zoom: number): HTMLCanvasElement {
+export function getCachedSprite(sprite: SpriteSource, zoom: number): HTMLCanvasElement {
+  if (isPngRef(sprite)) return getCachedPngSprite(sprite, zoom)
+  return getCachedSpriteData(sprite, zoom)
+}
+
+function getCachedPngSprite(ref: PngSpriteRef, zoom: number): HTMLCanvasElement {
+  let cache = pngZoomCaches.get(zoom)
+  if (!cache) {
+    cache = new Map()
+    pngZoomCaches.set(zoom, cache)
+  }
+  const cached = cache.get(ref.img)
+  if (cached) return cached
+
+  const canvas = document.createElement('canvas')
+  canvas.width = ref.w * zoom
+  canvas.height = ref.h * zoom
+  const ctx = canvas.getContext('2d')!
+  ctx.imageSmoothingEnabled = false
+  ctx.drawImage(ref.img, ref.sx ?? 0, ref.sy ?? 0, ref.w, ref.h, 0, 0, ref.w * zoom, ref.h * zoom)
+  cache.set(ref.img, canvas)
+  return canvas
+}
+
+function getCachedSpriteData(sprite: SpriteData, zoom: number): HTMLCanvasElement {
   let cache = zoomCaches.get(zoom)
   if (!cache) {
     cache = new WeakMap()

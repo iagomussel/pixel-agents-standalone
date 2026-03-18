@@ -44,6 +44,7 @@ const furnitureAssets = loadFurnitureAssets(assetsRoot);
 const persistDir = join(homedir(), ".pixel-agents");
 const persistedLayoutPath = join(persistDir, "layout.json");
 const persistedSeatsPath = join(persistDir, "agent-seats.json");
+const persistedNamesPath = join(persistDir, "agent-names.json");
 
 // Load layout: persisted first, then default
 function loadLayout(): Record<string, unknown> | null {
@@ -72,8 +73,21 @@ function loadPersistedSeats(): Record<number, { palette: number; hueShift: numbe
   return null;
 }
 
+function loadPersistedNames(): Record<number, string> | null {
+  if (existsSync(persistedNamesPath)) {
+    try {
+      const content = readFileSync(persistedNamesPath, "utf-8");
+      return JSON.parse(content);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 let currentLayout = loadLayout();
 const persistedSeats = loadPersistedSeats();
+const persistedNames = loadPersistedNames();
 
 // Express app
 const app = express();
@@ -173,6 +187,11 @@ function sendInitialData(ws: WebSocket): void {
     );
   }
 
+  // Send agent names
+  if (persistedNames && Object.keys(persistedNames).length > 0) {
+    ws.send(JSON.stringify({ type: "agentNamesLoaded", names: persistedNames }));
+  }
+
   // Send existing agents with persisted seat metadata
   const agentList = Array.from(agents.values());
   const agentIds = agentList.map((a) => a.id);
@@ -227,6 +246,13 @@ wss.on("connection", (ws) => {
           writeFileSync(persistedSeatsPath, JSON.stringify(msg.seats, null, 2));
         } catch (err) {
           console.error(`[Server] Failed to save agent seats: ${err instanceof Error ? err.message : err}`);
+        }
+      } else if (msg.type === "saveAgentNames") {
+        try {
+          mkdirSync(persistDir, { recursive: true });
+          writeFileSync(persistedNamesPath, JSON.stringify(msg.names, null, 2));
+        } catch (err) {
+          console.error(`[Server] Failed to save agent names: ${err instanceof Error ? err.message : err}`);
         }
       }
     } catch {

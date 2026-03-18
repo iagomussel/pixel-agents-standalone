@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import type { OfficeState } from '../office/engine/officeState.js'
 import type { OfficeLayout, ToolActivity } from '../office/types.js'
 import { extractToolName } from '../office/toolUtils.js'
@@ -40,6 +40,14 @@ export interface WorkspaceFolder {
   path: string
 }
 
+export interface AgentMessage {
+  id: string
+  text: string
+  timestamp: number
+  kind: 'tool' | 'status' | 'permission' | 'info'
+  done: boolean
+}
+
 export interface ExtensionMessageState {
   agents: number[]
   selectedAgent: number | null
@@ -50,6 +58,9 @@ export interface ExtensionMessageState {
   layoutReady: boolean
   loadedAssets?: { catalog: FurnitureAsset[]; sprites: Record<string, string[][]> }
   workspaceFolders: WorkspaceFolder[]
+  agentMessages: Record<number, AgentMessage[]>
+  agentNames: Record<number, string>
+  updateAgentName: (id: number, name: string) => void
 }
 
 function saveAgentSeats(os: OfficeState): void {
@@ -59,6 +70,18 @@ function saveAgentSeats(os: OfficeState): void {
     seats[ch.id] = { palette: ch.palette, hueShift: ch.hueShift, seatId: ch.seatId }
   }
   vscode.postMessage({ type: 'saveAgentSeats', seats })
+}
+
+const MAX_MESSAGES_PER_AGENT = 30
+
+function appendMessage(
+  prev: Record<number, AgentMessage[]>,
+  id: number,
+  msg: AgentMessage,
+): Record<number, AgentMessage[]> {
+  const list = prev[id] || []
+  const next = [...list, msg]
+  return { ...prev, [id]: next.length > MAX_MESSAGES_PER_AGENT ? next.slice(-MAX_MESSAGES_PER_AGENT) : next }
 }
 
 export function useExtensionMessages(
@@ -75,9 +98,25 @@ export function useExtensionMessages(
   const [layoutReady, setLayoutReady] = useState(false)
   const [loadedAssets, setLoadedAssets] = useState<{ catalog: FurnitureAsset[]; sprites: Record<string, string[][]> } | undefined>()
   const [workspaceFolders, setWorkspaceFolders] = useState<WorkspaceFolder[]>([])
+  const [agentMessages, setAgentMessages] = useState<Record<number, AgentMessage[]>>({})
+  const [agentNames, setAgentNames] = useState<Record<number, string>>({})
 
   // Track whether initial layout has been loaded (ref to avoid re-render)
   const layoutReadyRef = useRef(false)
+
+  const updateAgentName = useCallback((id: number, name: string) => {
+    setAgentNames((prev) => {
+      const next = { ...prev }
+      const trimmed = name.trim()
+      if (trimmed) {
+        next[id] = trimmed
+      } else {
+        delete next[id]
+      }
+      vscode.postMessage({ type: 'saveAgentNames', names: next })
+      return next
+    })
+  }, [])
 
   useEffect(() => {
     // Buffer agents from existingAgents until layout is loaded
@@ -141,6 +180,12 @@ export function useExtensionMessages(
           delete next[id]
           return next
         })
+        setAgentMessages((prev) => {
+          if (!(id in prev)) return prev
+          const next = { ...prev }
+          delete next[id]
+          return next
+        })
         // Remove all sub-agent characters belonging to this agent
         os.removeAllSubagents(id)
         setSubagentCharacters((prev) => prev.filter((s) => s.parentAgentId !== id))
@@ -173,6 +218,9 @@ export function useExtensionMessages(
           if (list.some((t) => t.toolId === toolId)) return prev
           return { ...prev, [id]: [...list, { toolId, status, done: false }] }
         })
+        setAgentMessages((prev) =>
+          appendMessage(prev, id, { id: toolId, text: status, timestamp: Date.now(), kind: 'tool', done: false }),
+        )
         const toolName = extractToolName(status)
         os.setAgentTool(id, toolName)
         os.setAgentActive(id, true)
@@ -197,6 +245,11 @@ export function useExtensionMessages(
             [id]: list.map((t) => (t.toolId === toolId ? { ...t, done: true } : t)),
           }
         })
+        setAgentMessages((prev) => {
+          const list = prev[id]
+          if (!list) return prev
+          return { ...prev, [id]: list.map((m) => (m.id === toolId ? { ...m, done: true } : m)) }
+        })
       } else if (msg.type === 'agentToolsClear') {
         const id = msg.id as number
         setAgentTools((prev) => {
@@ -210,6 +263,11 @@ export function useExtensionMessages(
           const next = { ...prev }
           delete next[id]
           return next
+        })
+        setAgentMessages((prev) => {
+          const list = prev[id]
+          if (!list) return prev
+          return { ...prev, [id]: list.map((m) => (!m.done ? { ...m, done: true } : m)) }
         })
         // Remove all sub-agent characters belonging to this agent
         os.removeAllSubagents(id)
@@ -235,9 +293,27 @@ export function useExtensionMessages(
         if (status === 'waiting') {
           os.showWaitingBubble(id)
           playDoneSound()
+          setAgentMessages((prev) =>
+            appendMessage(prev, id, {
+              id: `waiting-${Date.now()}`,
+              text: 'Waiting for input...',
+              timestamp: Date.now(),
+              kind: 'status',
+              done: false,
+            }),
+          )
         }
       } else if (msg.type === 'agentToolPermission') {
         const id = msg.id as number
+        setAgentMessages((prev) =>
+          appendMessage(prev, id, {
+            id: `perm-${Date.now()}`,
+            text: 'Needs your approval',
+            timestamp: Date.now(),
+            kind: 'permission',
+            done: false,
+          }),
+        )
         setAgentTools((prev) => {
           const list = prev[id]
           if (!list) return prev
@@ -353,6 +429,9 @@ export function useExtensionMessages(
         } catch (err) {
           console.error(`❌ Webview: Error processing furnitureAssetsLoaded:`, err)
         }
+      } else if (msg.type === 'agentNamesLoaded') {
+        const names = msg.names as Record<number, string>
+        setAgentNames(names)
       }
     }
     window.addEventListener('message', handler)
@@ -360,5 +439,5 @@ export function useExtensionMessages(
     return () => window.removeEventListener('message', handler)
   }, [getOfficeState])
 
-  return { agents, selectedAgent, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets, workspaceFolders }
+  return { agents, selectedAgent, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets, workspaceFolders, agentMessages, agentNames, updateAgentName }
 }

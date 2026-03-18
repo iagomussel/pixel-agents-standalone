@@ -1,5 +1,5 @@
 import { FurnitureType } from '../types.js'
-import type { FurnitureCatalogEntry, SpriteData } from '../types.js'
+import type { FurnitureCatalogEntry, SpriteData, PngSpriteRef } from '../types.js'
 import {
   DESK_SQUARE_SPRITE,
   BOOKSHELF_SPRITE,
@@ -86,7 +86,7 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
   if (!assets?.catalog || !assets?.sprites) return false
 
   // Build all entries (including non-front variants)
-  const allEntries = assets.catalog.map((asset) => {
+  const allEntries = assets.catalog.map((asset): CatalogEntryWithCategory | null => {
     const sprite = assets.sprites[asset.id]
     if (!sprite) {
       console.warn(`No sprite data for asset ${asset.id}`)
@@ -270,6 +270,40 @@ export const FURNITURE_CATEGORIES: Array<{ id: FurnitureCategory; label: string 
   { id: 'wall', label: 'Wall' },
   { id: 'misc', label: 'Misc' },
 ]
+
+// ── PNG import ───────────────────────────────────────────────────
+
+/**
+ * Add a user-imported PNG sprite to the active catalog (runtime only, not persisted).
+ * Returns the generated asset ID.
+ */
+export function addPngToCatalog(
+  id: string,
+  label: string,
+  category: FurnitureCategory,
+  footprintW: number,
+  footprintH: number,
+  isDesk: boolean,
+  sprite: PngSpriteRef,
+): void {
+  const entry: CatalogEntryWithCategory = { type: id, label, footprintW, footprintH, sprite, isDesk, category }
+
+  if (!internalCatalog) internalCatalog = []
+  if (!dynamicCatalog) dynamicCatalog = []
+
+  // Remove existing entry with same id (replace on re-import)
+  const replaceInternal = internalCatalog.findIndex((e) => e.type === id)
+  if (replaceInternal >= 0) internalCatalog.splice(replaceInternal, 1, entry)
+  else internalCatalog.push(entry)
+
+  const replaceDynamic = dynamicCatalog.findIndex((e) => e.type === id)
+  if (replaceDynamic >= 0) dynamicCatalog.splice(replaceDynamic, 1, entry)
+  else dynamicCatalog.push(entry)
+
+  // Ensure the category is tracked
+  if (!dynamicCategories) dynamicCategories = []
+  if (!dynamicCategories.includes(category)) dynamicCategories.push(category)
+}
 
 // ── Rotation helpers ─────────────────────────────────────────────
 

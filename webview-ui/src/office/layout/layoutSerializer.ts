@@ -1,7 +1,13 @@
 import { TileType, FurnitureType, DEFAULT_COLS, DEFAULT_ROWS, TILE_SIZE, Direction } from '../types.js'
-import type { TileType as TileTypeVal, OfficeLayout, PlacedFurniture, Seat, FurnitureInstance, FloorColor } from '../types.js'
+import type { TileType as TileTypeVal, OfficeLayout, PlacedFurniture, Seat, FurnitureInstance, FloorColor, SpriteSource } from '../types.js'
 import { getCatalogEntry } from './furnitureCatalog.js'
 import { getColorizedSprite } from '../colorize.js'
+import { isPngRef } from '../sprites/spriteCache.js'
+
+/** Get the pixel height of any sprite source */
+function spriteHeight(sprite: SpriteSource): number {
+  return isPngRef(sprite) ? sprite.h : sprite.length
+}
 
 /** Convert flat tile array from layout into 2D grid */
 export function layoutToTileMap(layout: OfficeLayout): TileTypeVal[][] {
@@ -23,7 +29,7 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
   for (const item of furniture) {
     const entry = getCatalogEntry(item.type)
     if (!entry || !entry.isDesk) continue
-    const deskZY = item.row * TILE_SIZE + entry.sprite.length
+    const deskZY = item.row * TILE_SIZE + spriteHeight(entry.sprite)
     for (let dr = 0; dr < entry.footprintH; dr++) {
       for (let dc = 0; dc < entry.footprintW; dc++) {
         const key = `${item.col + dc},${item.row + dr}`
@@ -39,7 +45,7 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
     if (!entry) continue
     const x = item.col * TILE_SIZE
     const y = item.row * TILE_SIZE
-    const spriteH = entry.sprite.length
+    const spriteH = spriteHeight(entry.sprite)
     let zY = y + spriteH
 
     // Chair z-sorting: ensure characters sitting on chairs render correctly
@@ -65,9 +71,9 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
       }
     }
 
-    // Colorize sprite if this furniture has a color override
+    // Colorize sprite if this furniture has a color override (SpriteData only — PNG sprites skip colorization)
     let sprite = entry.sprite
-    if (item.color) {
+    if (item.color && !isPngRef(entry.sprite)) {
       const { h, s, b: bv, c: cv } = item.color
       sprite = getColorizedSprite(`furn-${item.type}-${h}-${s}-${bv}-${cv}-${item.color.colorize ? 1 : 0}`, entry.sprite, item.color)
     }
