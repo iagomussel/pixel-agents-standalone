@@ -121,7 +121,7 @@ function App() {
 
   const isEditDirty = useCallback(() => editor.isEditMode && editor.isDirty, [editor.isEditMode, editor.isDirty])
 
-  const { agents, selectedAgent, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets, workspaceFolders, agentMessages, agentNames, updateAgentName } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty)
+  const { agents, selectedAgent, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets, workspaceFolders, agentMessages, agentNames, updateAgentName, sendAgentMessage, handlePermissionAction } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty)
 
   const [isDebugMode, setIsDebugMode] = useState(false)
 
@@ -297,6 +297,8 @@ function App() {
         agentMessages={agentMessages}
         agentNames={agentNames}
         onRenameAgent={updateAgentName}
+        onSendMessage={sendAgentMessage}
+        onPermissionAction={handlePermissionAction}
       />
 
       {isDebugMode && (

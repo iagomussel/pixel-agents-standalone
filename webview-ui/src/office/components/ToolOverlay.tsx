@@ -18,6 +18,8 @@ interface ToolOverlayProps {
   agentMessages: Record<number, AgentMessage[]>
   agentNames: Record<number, string>
   onRenameAgent: (id: number, name: string) => void
+  onSendMessage: (agentId: number, text: string) => void
+  onPermissionAction: (agentId: number, action: 'approve' | 'deny') => void
 }
 
 /** Derive a short human-readable activity string from tools/status */
@@ -56,6 +58,8 @@ export function ToolOverlay({
   agentMessages,
   agentNames,
   onRenameAgent,
+  onSendMessage,
+  onPermissionAction,
 }: ToolOverlayProps) {
   const [, setTick] = useState(0)
   useEffect(() => {
@@ -149,6 +153,8 @@ export function ToolOverlay({
               messages={agentMessages[isSub ? (ch.parentAgentId ?? id) : id] || []}
               onClose={() => onCloseAgent(id)}
               onRename={(name) => onRenameAgent(id, name)}
+              onSendMessage={(text) => onSendMessage(id, text)}
+              onPermissionAction={(action) => onPermissionAction(id, action)}
             />
           )
         }

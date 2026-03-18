@@ -44,7 +44,7 @@ export interface AgentMessage {
   id: string
   text: string
   timestamp: number
-  kind: 'tool' | 'status' | 'permission' | 'info'
+  kind: 'tool' | 'status' | 'permission' | 'info' | 'user'
   done: boolean
 }
 
@@ -61,6 +61,8 @@ export interface ExtensionMessageState {
   agentMessages: Record<number, AgentMessage[]>
   agentNames: Record<number, string>
   updateAgentName: (id: number, name: string) => void
+  sendAgentMessage: (agentId: number, text: string) => void
+  handlePermissionAction: (agentId: number, action: 'approve' | 'deny') => void
 }
 
 function saveAgentSeats(os: OfficeState): void {
@@ -116,6 +118,35 @@ export function useExtensionMessages(
       vscode.postMessage({ type: 'saveAgentNames', names: next })
       return next
     })
+  }, [])
+
+  const sendAgentMessage = useCallback((agentId: number, text: string) => {
+    const trimmed = text.trim()
+    if (!trimmed) return
+    vscode.postMessage({ type: 'userMessage', agentId, text: trimmed })
+    // Optimistically add to local messages
+    setAgentMessages((prev) =>
+      appendMessage(prev, agentId, {
+        id: `user-${Date.now()}`,
+        text: trimmed,
+        timestamp: Date.now(),
+        kind: 'user',
+        done: false,
+      })
+    )
+  }, [])
+
+  const handlePermissionAction = useCallback((agentId: number, action: 'approve' | 'deny') => {
+    vscode.postMessage({ type: 'permissionAction', agentId, action })
+    setAgentMessages((prev) =>
+      appendMessage(prev, agentId, {
+        id: `perm-action-${Date.now()}`,
+        text: action === 'approve' ? 'Permission approved' : 'Permission denied',
+        timestamp: Date.now(),
+        kind: 'status',
+        done: true,
+      })
+    )
   }, [])
 
   useEffect(() => {
@@ -439,5 +470,5 @@ export function useExtensionMessages(
     return () => window.removeEventListener('message', handler)
   }, [getOfficeState])
 
-  return { agents, selectedAgent, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets, workspaceFolders, agentMessages, agentNames, updateAgentName }
+  return { agents, selectedAgent, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets, workspaceFolders, agentMessages, agentNames, updateAgentName, sendAgentMessage, handlePermissionAction }
 }
