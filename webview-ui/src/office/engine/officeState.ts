@@ -1,4 +1,4 @@
-import { TILE_SIZE, MATRIX_EFFECT_DURATION, CharacterState, Direction } from '../types.js'
+import { TILE_SIZE, MATRIX_EFFECT_DURATION, CharacterState, Direction, TileType } from '../types.js'
 import {
   PALETTE_COUNT,
   HUE_SHIFT_MIN_DEG,
@@ -43,6 +43,7 @@ export class OfficeState {
   /** Reverse lookup: sub-agent character ID → parent info */
   subagentMeta: Map<number, { parentAgentId: number; parentToolId: string }> = new Map()
   private nextSubagentId = -1
+  private completedLayoffIds: number[] = []
 
   constructor(layout?: OfficeLayout) {
     this.layout = layout || createDefaultLayout()
@@ -193,6 +194,23 @@ export class OfficeState {
     return { palette, hueShift }
   }
 
+  /**
+   * Deterministically pick a palette and hue shift for a project folder.
+   * All agents in the same folder will share this "uniform" color theme.
+   */
+  private getProjectPalette(folderName: string): { palette: number; hueShift: number } {
+    let hash = 0
+    for (let i = 0; i < folderName.length; i++) {
+      hash = (hash << 5) - hash + folderName.charCodeAt(i)
+      hash |= 0
+    }
+    const absHash = Math.abs(hash)
+    const palette = absHash % PALETTE_COUNT
+    // Deterministic hue shift (0-359).
+    const hueShift = (absHash >> 8) % 360
+    return { palette, hueShift }
+  }
+
   addAgent(
     id: number,
     preferredPalette?: number,
@@ -209,6 +227,10 @@ export class OfficeState {
     if (preferredPalette !== undefined) {
       palette = preferredPalette
       hueShift = preferredHueShift ?? 0
+    } else if (folderName) {
+      const project = this.getProjectPalette(folderName)
+      palette = project.palette
+      hueShift = project.hueShift
     } else {
       const pick = this.pickDiversePalette()
       palette = pick.palette
@@ -274,6 +296,61 @@ export class OfficeState {
     ch.matrixEffectTimer = 0
     ch.matrixEffectSeeds = matrixEffectSeeds()
     ch.bubbleType = null
+  }
+
+  startAgentLayoffExit(id: number): boolean {
+    const ch = this.characters.get(id)
+    if (!ch || ch.isSubagent) return false
+    if (ch.matrixEffect === 'despawn' || ch.isExiting) return true
+
+    if (ch.seatId) {
+      const seat = this.seats.get(ch.seatId)
+      if (seat) seat.assigned = false
+      ch.seatId = null
+    }
+    if (this.selectedAgentId === id) this.selectedAgentId = null
+    if (this.cameraFollowId === id) this.cameraFollowId = null
+
+    ch.isExiting = true
+    ch.isActive = false
+    ch.currentTool = null
+    ch.bubbleType = null
+    ch.bubbleTimer = 0
+    ch.path = []
+    ch.moveProgress = 0
+    this.rebuildFurnitureInstances()
+
+    if (ch.matrixEffect === 'spawn') return true
+
+    const exitTile = this.findPerimeterDoorTile(ch.tileCol, ch.tileRow) ?? this.findExitTile(ch.tileCol, ch.tileRow)
+    if (!exitTile) {
+      ch.matrixEffect = 'despawn'
+      ch.matrixEffectTimer = 0
+      ch.matrixEffectSeeds = matrixEffectSeeds()
+      return true
+    }
+
+    const path = findPath(ch.tileCol, ch.tileRow, exitTile.col, exitTile.row, this.tileMap, this.blockedTiles)
+    if (path.length > 0) {
+      ch.path = path
+      ch.moveProgress = 0
+      ch.state = CharacterState.WALK
+      ch.frame = 0
+      ch.frameTimer = 0
+    } else {
+      ch.matrixEffect = 'despawn'
+      ch.matrixEffectTimer = 0
+      ch.matrixEffectSeeds = matrixEffectSeeds()
+    }
+
+    return true
+  }
+
+  consumeCompletedLayoffs(): number[] {
+    if (this.completedLayoffIds.length === 0) return []
+    const completed = [...this.completedLayoffIds]
+    this.completedLayoffIds = []
+    return completed
   }
 
   /** Find seat uid at a given tile position, or null */
@@ -456,6 +533,29 @@ export class OfficeState {
     return best
   }
 
+  /** Find the closest doorway tile on the building perimeter for layoff exits. */
+  private findPerimeterDoorTile(fromCol: number, fromRow: number): { col: number; row: number } | null {
+    const cols = this.layout.cols
+    const rows = this.layout.rows
+    let best: { col: number; row: number } | null = null
+    let bestDist = Infinity
+
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        if (this.tileMap[row]?.[col] !== TileType.FLOOR_4) continue
+        const isPerimeter = col === 0 || row === 0 || col === cols - 1 || row === rows - 1
+        if (!isPerimeter) continue
+        const dist = Math.abs(col - fromCol) + Math.abs(row - fromRow)
+        if (dist < bestDist) {
+          best = { col, row }
+          bestDist = dist
+        }
+      }
+    }
+
+    return best
+  }
+
   /** Begin the exit sequence for a subagent: walk to edge, then despawn. */
   private startSubagentExit(ch: Character): void {
     ch.isExiting = true
@@ -559,6 +659,7 @@ export class OfficeState {
   setAgentActive(id: number, active: boolean): void {
     const ch = this.characters.get(id)
     if (ch) {
+      if (ch.isExiting) return
       ch.isActive = active
       if (!active) {
         // Sentinel -1: signals turn just ended, skip next seat rest timer.
@@ -634,6 +735,7 @@ export class OfficeState {
   setAgentTool(id: number, tool: string | null): void {
     const ch = this.characters.get(id)
     if (ch) {
+      if (ch.isExiting) return
       ch.currentTool = tool
     }
   }
@@ -641,6 +743,7 @@ export class OfficeState {
   showPermissionBubble(id: number): void {
     const ch = this.characters.get(id)
     if (ch) {
+      if (ch.isExiting) return
       ch.bubbleType = 'permission'
       ch.bubbleTimer = 0
     }
@@ -657,6 +760,7 @@ export class OfficeState {
   showWaitingBubble(id: number): void {
     const ch = this.characters.get(id)
     if (ch) {
+      if (ch.isExiting) return
       ch.bubbleType = 'waiting'
       ch.bubbleTimer = WAITING_BUBBLE_DURATION_SEC
     }
@@ -689,7 +793,11 @@ export class OfficeState {
             ch.matrixEffectSeeds = []
             // If marked for exit while spawning, start walk now
             if (ch.isExiting) {
-              this.startSubagentExit(ch)
+              if (ch.isSubagent) {
+                this.startSubagentExit(ch)
+              } else {
+                this.startAgentLayoffExit(ch.id)
+              }
             }
           } else {
             // Despawn complete — mark for deletion
@@ -723,6 +831,10 @@ export class OfficeState {
     }
     // Remove characters that finished despawn
     for (const id of toDelete) {
+      const ch = this.characters.get(id)
+      if (ch && ch.isExiting && !ch.isSubagent) {
+        this.completedLayoffIds.push(id)
+      }
       this.characters.delete(id)
     }
   }

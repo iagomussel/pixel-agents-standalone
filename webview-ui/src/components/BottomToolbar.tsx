@@ -13,6 +13,8 @@ interface BottomToolbarProps {
   workspaceFolders: WorkspaceFolder[]
   isLogOpen: boolean
   onToggleLog: () => void
+  isBoardOpen: boolean
+  onToggleBoard: () => void
 }
 
 const panelStyle: React.CSSProperties = {
@@ -55,6 +57,8 @@ export function BottomToolbar({
   workspaceFolders,
   isLogOpen,
   onToggleLog,
+  isBoardOpen,
+  onToggleBoard,
 }: BottomToolbarProps) {
   const [hovered, setHovered] = useState<string | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -164,6 +168,19 @@ export function BottomToolbar({
         title="System log"
       >
         Log
+      </button>
+      <button
+        onClick={onToggleBoard}
+        onMouseEnter={() => setHovered('board')}
+        onMouseLeave={() => setHovered(null)}
+        style={
+          isBoardOpen
+            ? { ...btnActive }
+            : { ...btnBase, background: hovered === 'board' ? 'var(--pixel-btn-hover-bg)' : btnBase.background }
+        }
+        title="Project Management Board"
+      >
+        Board
       </button>
       <div style={{ width: 1, height: 20, background: 'var(--pixel-border)', margin: '0 4px' }} />
       <button

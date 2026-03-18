@@ -15,6 +15,7 @@ import { ZoomControls } from './components/ZoomControls.js'
 import { BottomToolbar } from './components/BottomToolbar.js'
 import { ClaudeManagerPanel } from './components/ClaudeManagerPanel.js'
 import { SystemLogPanel } from './components/SystemLogPanel.js'
+import { ProjectBoardPanel } from './components/ProjectBoardPanel.js'
 import { SystemHeader } from './components/SystemHeader.js'
 
 // Game state lives outside React — updated imperatively by message handlers
@@ -132,16 +133,32 @@ function App() {
 
   const isEditDirty = useCallback(() => editor.isEditMode && editor.isDirty, [editor.isEditMode, editor.isDirty])
 
-  const { agents, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets, workspaceFolders, agentMessages, agentNames, agentSources, updateAgentName, agentWorkingDirs, agentTokens, sendAgentMessage, handlePermissionAction } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty)
+  const { agents, agentTools, agentStatuses, subagentCharacters, layoutReady, loadedAssets, workspaceFolders, agentMessages, agentConversations, agentNames, agentSources, agentResumeCommands, updateAgentName, agentWorkingDirs, agentTokens, agentFolderNames, sendAgentMessage, handlePermissionAction } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty)
 
   const [isDebugMode, setIsDebugMode] = useState(false)
   const [isLogOpen, setIsLogOpen] = useState(false)
+  const [isBoardOpen, setIsBoardOpen] = useState(false)
 
   const handleToggleDebugMode = useCallback(() => setIsDebugMode((prev) => !prev), [])
   const handleToggleLog = useCallback(() => setIsLogOpen((v) => !v), [])
+  const handleToggleBoard = useCallback(() => setIsBoardOpen((v) => !v), [])
+  const officeState = getOfficeState()
 
   const handleSelectAgent = useCallback((id: number) => {
     vscode.postMessage({ type: 'focusAgent', id })
+  }, [])
+
+  const handleLayoffAgent = useCallback((id: number) => {
+    const ch = officeState.characters.get(id)
+    if (!ch) {
+      vscode.postMessage({ type: 'layoffAgent', id })
+      return
+    }
+    officeState.startAgentLayoffExit(id)
+  }, [officeState])
+
+  const handleLayoffComplete = useCallback((id: number) => {
+    vscode.postMessage({ type: 'layoffAgent', id })
   }, [])
 
   const containerRef = useRef<HTMLDivElement>(null)
@@ -170,8 +187,6 @@ function App() {
     const focusId = meta ? meta.parentAgentId : agentId
     vscode.postMessage({ type: 'focusAgent', id: focusId })
   }, [])
-
-  const officeState = getOfficeState()
 
   // Force dependency on editorTickForKeyboard to propagate keyboard-triggered re-renders
   void editorTickForKeyboard
@@ -234,6 +249,7 @@ function App() {
       <OfficeCanvas
         officeState={officeState}
         onClick={handleClick}
+        onLayoffComplete={handleLayoffComplete}
         isEditMode={editor.isEditMode}
         editorState={editorState}
         onEditorTileAction={editor.handleEditorTileAction}
@@ -269,6 +285,8 @@ function App() {
         workspaceFolders={workspaceFolders}
         isLogOpen={isLogOpen}
         onToggleLog={handleToggleLog}
+        isBoardOpen={isBoardOpen}
+        onToggleBoard={handleToggleBoard}
       />
 
       {editor.isEditMode && editor.isDirty && (
@@ -333,12 +351,15 @@ function App() {
         zoom={editor.zoom}
         panRef={editor.panRef}
         agentMessages={agentMessages}
+        agentConversations={agentConversations}
         agentNames={agentNames}
         onRenameAgent={updateAgentName}
         agentWorkingDirs={agentWorkingDirs}
         agentSources={agentSources}
+        agentResumeCommands={agentResumeCommands}
         onSendMessage={sendAgentMessage}
         onPermissionAction={handlePermissionAction}
+        onLayoffAgent={handleLayoffAgent}
       />
 
       {isDebugMode && (
@@ -347,6 +368,7 @@ function App() {
           agentTools={agentTools}
           agentStatuses={agentStatuses}
           agentMessages={agentMessages}
+          agentConversations={agentConversations}
           agentNames={agentNames}
           officeState={officeState}
           onClose={handleToggleDebugMode}
@@ -354,7 +376,10 @@ function App() {
           onCloseAgent={handleCloseAgent}
           onSendMessage={sendAgentMessage}
           onPermissionAction={handlePermissionAction}
+          onLayoffAgent={handleLayoffAgent}
         />
+
+
       )}
 
       <SystemLogPanel
@@ -362,6 +387,19 @@ function App() {
         onClose={() => setIsLogOpen(false)}
         agentNames={agentNames}
       />
+
+      {isBoardOpen && (
+        <ProjectBoardPanel
+          agents={agents}
+          agentNames={agentNames}
+          agentFolderNames={agentFolderNames}
+          officeState={officeState}
+          workspaceFolders={workspaceFolders}
+          onClose={() => setIsBoardOpen(false)}
+          onFocusAgent={handleSelectAgent}
+          onLayoffAgent={handleLayoffAgent}
+        />
+      )}
     </div>
   )
 }

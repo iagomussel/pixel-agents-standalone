@@ -20,6 +20,7 @@ let entryId = 0
 const CATEGORY_COLORS: Record<string, string> = {
   '[MISSION_STARTED]': '#4ade80',
   '[MISSION_COMPLETE]': '#60a5fa',
+  '[LAYOFF]': '#f87171',
   '[EXPLORATION]': '#22d3ee',
   '[DATA]': '#fbbf24',
   '[SUBTASK]': '#a78bfa',
@@ -69,6 +70,10 @@ export function SystemLogPanel({ isOpen, onClose, agentNames }: SystemLogPanelPr
       } else if (msg.type === 'agentClosed') {
         const id = msg.id as number
         addEntry('[MISSION_COMPLETE]', `${getName(id)} logged out`)
+        delete folderNamesRef.current[id]
+      } else if (msg.type === 'agentLaidOff') {
+        const id = msg.id as number
+        addEntry('[LAYOFF]', `${getName(id)} was removed from the office`)
         delete folderNamesRef.current[id]
       } else if (msg.type === 'agentToolStart') {
         const id = msg.id as number

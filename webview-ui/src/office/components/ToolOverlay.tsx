@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import type { ToolActivity } from '../types.js'
 import type { OfficeState } from '../engine/officeState.js'
-import type { SubagentCharacter, AgentMessage } from '../../hooks/useExtensionMessages.js'
-import { TILE_SIZE, CharacterState } from '../types.js'
+import type { SubagentCharacter, AgentConversationEntry, AgentMessage } from '../../hooks/useExtensionMessages.js'
+import { CharacterState } from '../types.js'
 import { TOOL_OVERLAY_VERTICAL_OFFSET, CHARACTER_SITTING_OFFSET_PX } from '../../constants.js'
 import { getExteriorMetrics } from '../engine/exterior.js'
 import { AgentChatDialog } from '../../components/AgentChatDialog.js'
@@ -16,12 +16,15 @@ interface ToolOverlayProps {
   zoom: number
   panRef: React.RefObject<{ x: number; y: number }>
   agentMessages: Record<number, AgentMessage[]>
+  agentConversations: Record<number, AgentConversationEntry[]>
   agentNames: Record<number, string>
   onRenameAgent: (id: number, name: string) => void
   agentWorkingDirs: Record<number, string>
   agentSources: Record<number, 'claude' | 'codex' | 'opencode' | 'gemini'>
+  agentResumeCommands: Record<number, string>
   onSendMessage: (agentId: number, text: string) => void
   onPermissionAction: (agentId: number, action: 'approve' | 'deny') => void
+  onLayoffAgent: (agentId: number) => void
 }
 
 function getActivityText(
@@ -53,12 +56,15 @@ export function ToolOverlay({
   zoom,
   panRef,
   agentMessages,
+  agentConversations,
   agentNames,
   onRenameAgent,
   agentWorkingDirs,
   agentSources,
+  agentResumeCommands,
   onSendMessage,
   onPermissionAction,
+  onLayoffAgent,
 }: ToolOverlayProps) {
   const [, setTick] = useState(0)
   useEffect(() => {
@@ -120,6 +126,7 @@ export function ToolOverlay({
           dotColor={selectedDotColor}
           isActive={selectedCharacter.isActive}
           messages={agentMessages[selectedBaseId ?? selectedCharacter.id] || []}
+          conversation={agentConversations[selectedBaseId ?? selectedCharacter.id] || []}
           onClose={() => {
             officeState.selectedAgentId = null
             officeState.cameraFollowId = null
@@ -129,8 +136,10 @@ export function ToolOverlay({
           onPermissionAction={selectedIsSub ? undefined : (action) => onPermissionAction(selectedCharacter.id, action)}
           source={agentSources[selectedCharacter.id] ?? selectedCharacter.source}
           workingDir={agentWorkingDirs[selectedCharacter.id]}
+          resumeCommand={selectedIsSub ? undefined : agentResumeCommands[selectedCharacter.id]}
           canInteract={!selectedIsSub && ['claude', 'codex', 'opencode'].includes(agentSources[selectedCharacter.id] ?? selectedCharacter.source ?? '')}
           needsApproval={!selectedIsSub && selectedHasPermission}
+          onLayoff={selectedIsSub ? undefined : () => onLayoffAgent(selectedCharacter.id)}
         />
       )}
       {allIds.map((id) => {

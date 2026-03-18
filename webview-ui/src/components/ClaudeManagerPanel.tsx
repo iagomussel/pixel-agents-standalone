@@ -1,14 +1,16 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type { ToolActivity } from '../office/types.js'
-import type { AgentMessage } from '../hooks/useExtensionMessages.js'
+import type { AgentConversationEntry, AgentMessage } from '../hooks/useExtensionMessages.js'
 import type { OfficeState } from '../office/engine/officeState.js'
 import { vscode } from '../vscodeApi.js'
+import { PALETTE_COLORS } from '../constants.js'
 
 interface ClaudeManagerPanelProps {
   agents: number[]
   agentTools: Record<number, ToolActivity[]>
   agentStatuses: Record<number, string>
   agentMessages: Record<number, AgentMessage[]>
+  agentConversations: Record<number, AgentConversationEntry[]>
   agentNames: Record<number, string>
   officeState: OfficeState
   onClose: () => void
@@ -16,9 +18,8 @@ interface ClaudeManagerPanelProps {
   onCloseAgent: (id: number) => void
   onSendMessage: (agentId: number, text: string) => void
   onPermissionAction: (agentId: number, action: 'approve' | 'deny') => void
+  onLayoffAgent: (id: number) => void
 }
-
-const PALETTE_COLORS = ['#4fc3f7', '#ef9a9a', '#a5d6a7', '#fff176', '#ce93d8', '#ffcc80']
 
 const CODING_TOOLS = new Set(['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
 const READING_TOOLS_SET = new Set(['Read', 'Grep', 'Glob'])
@@ -51,6 +52,22 @@ function statusColor(s: string): string {
     case 'APPROVAL': return '#ffb74d'
     default: return '#556655'
   }
+}
+
+function truncateText(text: string, maxLength: number): string {
+  return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text
+}
+
+function getContextSnapshot(conversation: AgentConversationEntry[]): { objective: string | null; latestReply: string | null } {
+  let objective: string | null = null
+  let latestReply: string | null = null
+  for (let i = conversation.length - 1; i >= 0; i -= 1) {
+    const entry = conversation[i]
+    if (!latestReply && entry.role === 'assistant') latestReply = truncateText(entry.text, 140)
+    if (!objective && entry.role === 'user') objective = truncateText(entry.text, 140)
+    if (objective && latestReply) break
+  }
+  return { objective, latestReply }
 }
 
 function MiniAvatar({ palette, isActive }: { palette: number; isActive: boolean }) {
@@ -129,6 +146,7 @@ export function ClaudeManagerPanel({
   agentTools,
   agentStatuses,
   agentMessages,
+  agentConversations,
   agentNames,
   officeState,
   onClose,
@@ -236,6 +254,8 @@ export function ClaudeManagerPanel({
   }, [needsApproval, selectedId, onPermissionAction])
 
   const termMessages = selectedId !== null ? (agentMessages[selectedId] ?? []).slice(-40) : []
+  const selectedConversation = selectedId !== null ? (agentConversations[selectedId] ?? []) : []
+  const { objective, latestReply } = getContextSnapshot(selectedConversation)
   const allMessages = tab === 'LOGS'
     ? agents.flatMap((id) =>
         (agentMessages[id] ?? []).map((m) => ({ ...m, agentId: id, agentName: agentNames[id] || `Agent #${id}` }))
@@ -481,9 +501,26 @@ export function ClaudeManagerPanel({
 
           {/* Message log */}
           <div ref={logRef} style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+            {selectedId !== null && (objective || latestReply) && (
+              <div style={{ margin: '8px 10px 10px', border: borderStyle, background: '#071107', padding: '8px 10px' }}>
+                <div style={{ color: '#2a5a2a', fontSize: '12px', letterSpacing: 1, marginBottom: 6 }}>CONTEXT SNAPSHOT</div>
+                {objective && (
+                  <div style={{ marginBottom: latestReply ? 8 : 0 }}>
+                    <span style={{ color: '#88bb88', fontSize: '12px' }}>OBJECTIVE: </span>
+                    <span style={{ color: '#779977', fontSize: '13px' }}>{objective}</span>
+                  </div>
+                )}
+                {latestReply && (
+                  <div>
+                    <span style={{ color: '#88bb88', fontSize: '12px' }}>LAST REPLY: </span>
+                    <span style={{ color: '#779977', fontSize: '13px' }}>{latestReply}</span>
+                  </div>
+                )}
+              </div>
+            )}
             {termMessages.length === 0 && (
               <div style={{ padding: '12px 10px', color: '#1a3a1a', fontStyle: 'italic' }}>
-                {selectedId === null ? '> Select an agent from the table.' : '> No activity yet.'}
+                {selectedId === null ? '> Select an agent from the table.' : selectedConversation.length > 0 ? '> No new ops events. Context loaded above.' : '> No activity yet.'}
               </div>
             )}
             {termMessages.map((m) => {

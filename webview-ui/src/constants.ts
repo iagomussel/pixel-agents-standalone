@@ -123,3 +123,6 @@ export const TOOL_ANIM_BASE_Y_OFFSET_PX = 20
 export const TOOL_ANIM_MAX_BOUNCE_PX = 3
 export const TOOL_ANIM_COLOR_TYPING = '#4fc3f7'
 export const TOOL_ANIM_COLOR_READING = '#81c784'
+
+// ── Agent Palettes ──────────────────────────────────────────
+export const PALETTE_COLORS = ['#4fc3f7', '#ef9a9a', '#a5d6a7', '#fff176', '#ce93d8', '#ffcc80']

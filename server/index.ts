@@ -33,6 +33,7 @@ function collectWorkspaceFolders(): Array<{ name: string; path: string }> {
   folders.set(cwd, { name: "[Current Dir]", path: cwd });
 
   for (const agent of agents.values()) {
+    if (isAgentLaidOff(agent)) continue;
     const dir = agent.currentWorkingDir ?? agent.projectDir;
     if (!dir || folders.has(dir)) continue;
     folders.set(dir, { name: agent.projectName || dir.split("/").pop() || dir, path: dir });
@@ -54,6 +55,24 @@ function findAgentById(id: number): TrackedAgent | null {
 
 function getAgentCwd(agent: TrackedAgent): string {
   return agent.currentWorkingDir ?? process.cwd();
+}
+
+function quoteShellArg(value: string): string {
+  return JSON.stringify(value);
+}
+
+function buildResumeCommand(agent: TrackedAgent): string | null {
+  const sessionId = quoteShellArg(agent.sessionId);
+  switch (agent.source) {
+    case "claude":
+      return `claude --resume ${sessionId}`;
+    case "codex":
+      return `codex resume ${sessionId}`;
+    case "opencode":
+      return `opencode run --session ${sessionId}`;
+    default:
+      return null;
+  }
 }
 
 function spawnDetached(command: string, args: string[], cwd: string): void {
@@ -98,6 +117,30 @@ function handlePermissionAction(agent: TrackedAgent, action: "approve" | "deny")
   return sendPromptToAgent(agent, prompt);
 }
 
+function compactContext(agent: TrackedAgent): boolean {
+  const cwd = getAgentCwd(agent);
+  try {
+    switch (agent.source) {
+      case "claude":
+        // Claude CLI handles slash commands like /compact
+        return sendPromptToAgent(agent, "/compact");
+      case "codex":
+        // Codex has a specific 'compact' command for sessions
+        spawnDetached("codex", ["compact", "--json", agent.sessionId], cwd);
+        return true;
+      case "opencode":
+        // OpenCode has a 'compact' command
+        spawnDetached("opencode", ["compact", "--session", agent.sessionId], cwd);
+        return true;
+      default:
+        return false;
+    }
+  } catch (err) {
+    console.error(`[Server] Failed to compact agent ${agent.id}: ${err instanceof Error ? err.message : err}`);
+    return false;
+  }
+}
+
 // Load assets at startup
 // In dev mode (tsx), __dirname is server/ so assets are at ../webview-ui/public/assets/
 // In production (esbuild), __dirname is dist/ so assets are at ./public/assets/
@@ -117,6 +160,7 @@ const persistDir = join(homedir(), ".pixel-agents");
 const persistedLayoutPath = join(persistDir, "layout.json");
 const persistedSeatsPath = join(persistDir, "agent-seats.json");
 const persistedNamesPath = join(persistDir, "agent-names.json");
+const persistedLaidOffAgentsPath = join(persistDir, "laid-off-agents.json");
 
 // Load layout: persisted first, then default
 function loadLayout(): Record<string, unknown> | null {
@@ -157,9 +201,36 @@ function loadPersistedNames(): Record<number, string> | null {
   return null;
 }
 
+function loadPersistedLaidOffAgents(): Set<string> {
+  if (!existsSync(persistedLaidOffAgentsPath)) {
+    return new Set();
+  }
+
+  try {
+    const content = readFileSync(persistedLaidOffAgentsPath, "utf-8");
+    const parsed = JSON.parse(content) as unknown;
+    if (!Array.isArray(parsed)) {
+      return new Set();
+    }
+    return new Set(parsed.filter((value): value is string => typeof value === "string"));
+  } catch {
+    return new Set();
+  }
+}
+
+function persistLaidOffAgents(laidOffAgentKeys: Set<string>): void {
+  mkdirSync(persistDir, { recursive: true });
+  writeFileSync(persistedLaidOffAgentsPath, JSON.stringify(Array.from(laidOffAgentKeys).sort(), null, 2));
+}
+
 let currentLayout = loadLayout();
 const persistedSeats = loadPersistedSeats();
 const persistedNames = loadPersistedNames();
+const laidOffAgentKeys = loadPersistedLaidOffAgents();
+
+function isAgentLaidOff(agent: TrackedAgent): boolean {
+  return laidOffAgentKeys.has(getAgentKey(agent.source, agent.sessionId));
+}
 
 // Express app
 const app = express();
@@ -169,7 +240,8 @@ app.use(express.static(join(__dirname, "public")));
 
 // Health check
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok", agents: agents.size, clients: clients.size, uptime: Math.floor(process.uptime()) });
+  const visibleAgents = Array.from(agents.values()).filter((agent) => !isAgentLaidOff(agent)).length;
+  res.json({ status: "ok", agents: visibleAgents, clients: clients.size, uptime: Math.floor(process.uptime()) });
 });
 
 // Layout export
@@ -301,20 +373,25 @@ function sendInitialData(ws: WebSocket): void {
   }
 
   // Send existing agents with persisted seat metadata
-  const agentList = Array.from(agents.values());
+  const agentList = Array.from(agents.values()).filter((agent) => !isAgentLaidOff(agent));
   const agentIds = agentList.map((a) => a.id);
   const folderNames: Record<number, string> = {};
   const agentMeta: Record<number, { palette?: number; hueShift?: number; seatId?: string }> = {};
   const agentSources: Record<number, TrackedAgent["source"]> = {};
+  const agentResumeCommands: Record<number, string> = {};
   for (const a of agentList) {
     folderNames[a.id] = a.projectName;
     agentSources[a.id] = a.source;
+    const resumeCommand = buildResumeCommand(a);
+    if (resumeCommand) {
+      agentResumeCommands[a.id] = resumeCommand;
+    }
     if (persistedSeats?.[a.id]) {
       const s = persistedSeats[a.id];
       agentMeta[a.id] = { palette: s.palette, hueShift: s.hueShift, seatId: s.seatId ?? undefined };
     }
   }
-  ws.send(JSON.stringify({ type: "existingAgents", agents: agentIds, folderNames, agentMeta, agentSources }));
+  ws.send(JSON.stringify({ type: "existingAgents", agents: agentIds, folderNames, agentMeta, agentSources, agentResumeCommands }));
 
   // Send layout (must come after existingAgents — the hook buffers agents until layout arrives)
   if (currentLayout) {
@@ -337,6 +414,9 @@ function sendInitialData(ws: WebSocket): void {
         totalInput: agent.totalInputTokens,
         totalOutput: agent.totalOutputTokens,
       }));
+    }
+    if (agent.conversationEntries.length > 0) {
+      ws.send(JSON.stringify({ type: "agentConversationHistory", id: agent.id, entries: agent.conversationEntries }));
     }
   }
 }
@@ -380,6 +460,24 @@ wss.on("connection", (ws) => {
         } catch (err) {
           console.error(`[Server] Failed to save agent names: ${err instanceof Error ? err.message : err}`);
         }
+      } else if (msg.type === "layoffAgent") {
+        const agent = findAgentById(msg.id);
+        if (agent && !isAgentLaidOff(agent)) {
+          const agentKey = getAgentKey(agent.source, agent.sessionId);
+          laidOffAgentKeys.add(agentKey);
+          persistLaidOffAgents(laidOffAgentKeys);
+          clearAgentTimers(agent.id);
+          agent.activeTools.clear();
+          agent.activeToolNames.clear();
+          agent.activeSubagentToolIds.clear();
+          agent.activeSubagentToolNames.clear();
+          agent.activity = "idle";
+          agent.isWaiting = false;
+          agent.permissionSent = false;
+          agent.hadToolsInTurn = false;
+          broadcast({ type: "agentLaidOff", id: agent.id });
+          console.log(`Agent ${agent.id} laid off from office view: [${agent.source}] ${agent.projectName}`);
+        }
       } else if (msg.type === "openClaude") {
         const folderPath = typeof msg.folderPath === "string" && msg.folderPath.trim() ? msg.folderPath.trim() : process.cwd();
         console.log(`[Server] Launching Claude in ${folderPath}`);
@@ -403,7 +501,11 @@ wss.on("connection", (ws) => {
       } else if (msg.type === "userMessage") {
         const agent = findAgentById(msg.agentId);
         if (agent && typeof msg.text === "string" && msg.text.trim()) {
-          sendPromptToAgent(agent, msg.text.trim());
+          if (msg.text.trim() === "/compact") {
+            compactContext(agent);
+          } else {
+            sendPromptToAgent(agent, msg.text.trim());
+          }
         }
       } else if (msg.type === "permissionAction") {
         const agent = findAgentById(msg.agentId);
@@ -448,10 +550,22 @@ watcher.on("fileAdded", (file: WatchedFile) => {
     currentWorkingDir: file.currentWorkingDir,
     totalInputTokens: 0,
     totalOutputTokens: 0,
+    conversationEntries: [],
   };
 
   agents.set(agentKey, agent);
-  broadcast({ type: "agentCreated", id: agent.id, folderName: agent.projectName, source: agent.source });
+  if (isAgentLaidOff(agent)) {
+    console.log(`Agent ${agent.id} remains laid off: [${agent.source}] ${agent.projectName} (${file.sessionId.slice(0, 8)})`);
+    return;
+  }
+
+  broadcast({
+    type: "agentCreated",
+    id: agent.id,
+    folderName: agent.projectName,
+    source: agent.source,
+    resumeCommand: buildResumeCommand(agent) ?? undefined,
+  });
   if (agent.currentWorkingDir) {
     broadcast({ type: "agentWorkingDir", id: agent.id, dir: agent.currentWorkingDir });
   }
@@ -465,13 +579,18 @@ watcher.on("fileRemoved", (file: WatchedFile) => {
 
   clearAgentTimers(agent.id);
   agents.delete(agentKey);
-  broadcast({ type: "agentClosed", id: agent.id });
+  if (laidOffAgentKeys.delete(agentKey)) {
+    persistLaidOffAgents(laidOffAgentKeys);
+  } else {
+    broadcast({ type: "agentClosed", id: agent.id });
+  }
   console.log(`Agent ${agent.id} left: [${agent.source}] ${agent.projectName}`);
 });
 
 watcher.on("line", (file: WatchedFile, line: string) => {
   const agent = agents.get(getAgentKey(file.source, file.sessionId));
   if (!agent) return;
+  if (isAgentLaidOff(agent)) return;
   lastActivityTime = Date.now();
 
   processTranscriptLine(line, agent, broadcast);

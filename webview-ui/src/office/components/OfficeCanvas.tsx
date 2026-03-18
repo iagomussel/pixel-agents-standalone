@@ -15,6 +15,7 @@ import { unlockAudio } from '../../notificationSound.js'
 interface OfficeCanvasProps {
   officeState: OfficeState
   onClick: (agentId: number) => void
+  onLayoffComplete?: (agentId: number) => void
   isEditMode: boolean
   editorState: EditorState
   onEditorTileAction: (col: number, row: number) => void
@@ -29,7 +30,7 @@ interface OfficeCanvasProps {
   panRef: React.MutableRefObject<{ x: number; y: number }>
 }
 
-export function OfficeCanvas({ officeState, onClick, isEditMode, editorState, onEditorTileAction, onEditorEraseAction, onEditorSelectionChange, onDeleteSelected, onRotateSelected, onDragMove, editorTick: _editorTick, zoom, onZoomChange, panRef }: OfficeCanvasProps) {
+export function OfficeCanvas({ officeState, onClick, onLayoffComplete, isEditMode, editorState, onEditorTileAction, onEditorEraseAction, onEditorSelectionChange, onDeleteSelected, onRotateSelected, onDragMove, editorTick: _editorTick, zoom, onZoomChange, panRef }: OfficeCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const offsetRef = useRef({ x: 0, y: 0 })
@@ -88,8 +89,14 @@ export function OfficeCanvas({ officeState, onClick, isEditMode, editorState, on
     const stop = startGameLoop(canvas, {
       update: (dt) => {
         officeState.update(dt)
+        const completedLayoffs = officeState.consumeCompletedLayoffs()
+        if (completedLayoffs.length > 0) {
+          for (const id of completedLayoffs) {
+            onLayoffComplete?.(id)
+          }
+        }
       },
-      render: (ctx) => {
+      render: (ctx, time) => {
         // Canvas dimensions are in device pixels
         const w = canvas.width
         const h = canvas.height
@@ -217,6 +224,7 @@ export function OfficeCanvas({ officeState, onClick, isEditMode, editorState, on
           officeState.getLayout().tileColors,
           officeState.getLayout().cols,
           officeState.getLayout().rows,
+          time,
         )
         offsetRef.current = { x: offsetX, y: offsetY }
 
@@ -230,7 +238,7 @@ export function OfficeCanvas({ officeState, onClick, isEditMode, editorState, on
       stop()
       observer.disconnect()
     }
-  }, [officeState, resizeCanvas, isEditMode, editorState, _editorTick, zoom, panRef])
+  }, [officeState, resizeCanvas, isEditMode, editorState, _editorTick, zoom, panRef, onLayoffComplete])
 
   // Convert CSS mouse coords to world (sprite pixel) coords
   const screenToWorld = useCallback(

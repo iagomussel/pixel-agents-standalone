@@ -13,6 +13,11 @@ interface RectSpec {
   h: number
 }
 
+interface PointSpec {
+  x: number
+  y: number
+}
+
 export interface ExteriorMetrics {
   worldCols: number
   worldRows: number
@@ -49,6 +54,43 @@ const BENCH_WOOD = '#8a5d39'
 const BENCH_METAL = '#4b5158'
 const FOUNTAIN_WATER = '#68b7d8'
 const FOUNTAIN_EDGE = '#d4d6d8'
+
+const STREET_LIGHT_POLE = '#555555'
+const STREET_LIGHT_GLOW = 'rgba(255, 255, 204, 0.4)'
+const TRASH_CAN_BASE = '#333333'
+const TRASH_CAN_LID = '#444444'
+const FLOWER_RED = '#cc3333'
+const FLOWER_YELLOW = '#cccc33'
+const FLOWER_PURPLE = '#9933cc'
+const FLOWER_WHITE = '#ffffff'
+const ROCK_BASE = '#888888'
+const ROCK_SHADE = '#666666'
+const PUDDLE_COLOR = 'rgba(104, 183, 216, 0.4)'
+const CRACK_COLOR = 'rgba(0, 0, 0, 0.1)'
+const CAR_RED = '#cc0000'
+const CAR_BLUE = '#0066cc'
+const CAR_GREEN = '#339933'
+const CAR_GRAY = '#666b73'
+const CAR_GLASS = '#bbddff'
+
+// Asset paths (local - use absolute from web root)
+const TREE_OAK_PATH = '/assets/exterior/oak.png'
+const TREE_PINE_PATH = '/assets/exterior/pine.png'
+const CARS_PATH = '/assets/exterior/cars.png'
+
+const assets = {
+  oak: new Image(),
+  pine: new Image(),
+  cars: new Image(),
+}
+assets.oak.src = TREE_OAK_PATH
+assets.pine.src = TREE_PINE_PATH
+assets.cars.src = CARS_PATH
+
+function deterministicUnit(seed: number): number {
+  const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453
+  return value - Math.floor(value)
+}
 
 export function getExteriorMetrics(cols: number, rows: number, zoom: number): ExteriorMetrics {
   const worldCols = cols + EXTERIOR_PAD_LEFT_TILES + EXTERIOR_PAD_RIGHT_TILES
@@ -196,51 +238,259 @@ function drawTree(
   zoom: number,
   col: number,
   row: number,
+  variant = 0,
+  time = 0,
 ): void {
   const s = TILE_SIZE * zoom
   const x = worldOriginX + col * s
   const y = worldOriginY + row * s
-  const trunkW = Math.max(3, Math.round(s * 0.2))
-  const trunkH = Math.max(4, Math.round(s * 0.35))
-  const canopy = Math.round(s * 0.72)
+
+  const sway = Math.sin(time / 800 + (col * 1.3) + (row * 0.7)) * 1.5 * zoom
+  const windX = sway
+
   ctx.fillStyle = TREE_SHADOW
-  ctx.fillRect(x + s * 0.15, y + s * 0.72, canopy, Math.max(3, Math.round(s * 0.18)))
-  ctx.fillStyle = TREE_TRUNK
-  ctx.fillRect(x + s * 0.5 - trunkW / 2, y + s * 0.52, trunkW, trunkH)
-  ctx.fillStyle = TREE_CANOPY
-  ctx.fillRect(x + s * 0.12, y + s * 0.1, canopy, canopy)
-  ctx.fillStyle = TREE_CANOPY_LIGHT
-  ctx.fillRect(x + s * 0.24, y + s * 0.18, canopy * 0.45, canopy * 0.35)
+  ctx.beginPath()
+  ctx.ellipse(x + s * 0.5, y + s * 0.85, s * 0.45, s * 0.18, 0, 0, Math.PI * 2)
+  ctx.fill()
+
+  const img = variant === 1 ? assets.pine : assets.oak
+  if (img.complete && img.naturalWidth > 0) {
+    ctx.drawImage(img, x + windX - s * 0.1, y - s * 0.3, s * 1.2, s * 1.2)
+  } else {
+    const trunkW = Math.max(3, Math.round(s * (variant === 1 ? 0.25 : 0.2)))
+    const trunkH = Math.max(4, Math.round(s * (variant === 1 ? 0.4 : 0.35)))
+    const canopy = Math.round(s * (variant === 1 ? 0.85 : 0.72))
+    const canopyColor = variant === 1 ? '#3a5f2a' : TREE_CANOPY
+    const highlightColor = variant === 1 ? '#4b7c35' : TREE_CANOPY_LIGHT
+    ctx.fillStyle = TREE_TRUNK
+    ctx.fillRect(x + s * 0.5 - trunkW / 2, y + s * 0.52, trunkW, trunkH)
+    ctx.fillStyle = canopyColor
+    ctx.fillRect(x + s * 0.5 - canopy / 2 + windX, y + s * 0.1, canopy, canopy)
+    ctx.fillStyle = highlightColor
+    ctx.fillRect(x + s * 0.5 - canopy * 0.2 + windX, y + s * 0.18, canopy * 0.45, canopy * 0.35)
+  }
 }
 
-function drawBench(
+function drawCar(
   ctx: CanvasRenderingContext2D,
   worldOriginX: number,
   worldOriginY: number,
   zoom: number,
   col: number,
   row: number,
+  color: string,
   vertical = false,
+  time = 0,
+  reverse = false,
+): void {
+  const s = TILE_SIZE * zoom
+  const speed = vertical ? 0.04 : 0.06
+  const loopDist = vertical ? 60 * s : 100 * s
+  const offset = (time * speed) % loopDist
+
+  let x = worldOriginX + col * s
+  let y = worldOriginY + row * s
+
+  if (vertical) {
+    if (reverse) {
+      y += offset
+      if (y > worldOriginY + loopDist - 20 * s) y -= loopDist
+    } else {
+      y -= offset
+      if (y < worldOriginY - 10 * s) y += loopDist
+    }
+  } else {
+    if (reverse) {
+      x -= offset
+      if (x < worldOriginX - 10 * s) x += loopDist
+    } else {
+      x += offset
+      if (x > worldOriginX + loopDist - 20 * s) x -= loopDist
+    }
+  }
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'
+  if (vertical) {
+    ctx.fillRect(x + s * 0.1, y + s * 0.1, s * 0.8, s * 1.2)
+  } else {
+    ctx.fillRect(x + s * 0.1, y + s * 0.1, s * 1.2, s * 0.8)
+  }
+
+  if (assets.cars.complete && assets.cars.naturalWidth > 0) {
+    const colorIdx = color === CAR_RED ? 0 : color === CAR_BLUE ? 1 : color === CAR_GREEN ? 2 : 3
+    const sx = colorIdx * 16
+
+    ctx.save()
+    ctx.translate(x + s * 0.5, y + s * 0.5)
+    if (vertical) {
+      ctx.rotate(reverse ? Math.PI : 0)
+    } else {
+      ctx.rotate(reverse ? -Math.PI / 2 : Math.PI / 2)
+    }
+    ctx.drawImage(assets.cars, sx, 0, 16, 16, -s * 0.5, -s * 0.5, s, s)
+    ctx.restore()
+  } else {
+    ctx.fillStyle = color
+    if (vertical) {
+      ctx.fillRect(x + s * 0.2, y + s * 0.1, s * 0.6, s * 1.1)
+      ctx.fillStyle = CAR_GLASS
+      ctx.fillRect(x + s * 0.25, y + s * 0.3, s * 0.5, s * 0.2)
+    } else {
+      ctx.fillRect(x + s * 0.1, y + s * 0.2, s * 1.1, s * 0.6)
+      ctx.fillStyle = CAR_GLASS
+      ctx.fillRect(x + s * 0.3, y + s * 0.25, s * 0.2, s * 0.5)
+    }
+  }
+}
+
+function drawStreetLight(
+  ctx: CanvasRenderingContext2D,
+  worldOriginX: number,
+  worldOriginY: number,
+  zoom: number,
+  col: number,
+  row: number,
 ): void {
   const s = TILE_SIZE * zoom
   const x = worldOriginX + col * s
   const y = worldOriginY + row * s
-  const leg = Math.max(2, Math.round(zoom * 1.4))
-  ctx.fillStyle = BENCH_METAL
-  if (vertical) {
-    ctx.fillRect(x + s * 0.25, y + s * 0.15, leg, s * 0.7)
-    ctx.fillRect(x + s * 0.65, y + s * 0.15, leg, s * 0.7)
-    ctx.fillStyle = BENCH_WOOD
-    ctx.fillRect(x + s * 0.32, y + s * 0.2, s * 0.3, s * 0.16)
-    ctx.fillRect(x + s * 0.32, y + s * 0.48, s * 0.3, s * 0.16)
-    return
-  }
 
-  ctx.fillRect(x + s * 0.15, y + s * 0.25, s * 0.7, leg)
-  ctx.fillRect(x + s * 0.15, y + s * 0.65, s * 0.7, leg)
-  ctx.fillStyle = BENCH_WOOD
-  ctx.fillRect(x + s * 0.2, y + s * 0.32, s * 0.6, s * 0.12)
-  ctx.fillRect(x + s * 0.2, y + s * 0.5, s * 0.6, s * 0.12)
+  const poleW = Math.max(2, Math.round(zoom * 1.5))
+  ctx.fillStyle = STREET_LIGHT_POLE
+  ctx.fillRect(x + s * 0.5 - poleW / 2, y + s * 0.2, poleW, s * 0.7)
+
+  const headW = Math.max(4, Math.round(s * 0.3))
+  ctx.fillRect(x + s * 0.5 - headW / 2, y + s * 0.1, headW, headW)
+
+  ctx.fillStyle = STREET_LIGHT_GLOW
+  ctx.beginPath()
+  ctx.arc(x + s * 0.5, y + s * 0.2, s * 0.6, 0, Math.PI * 2)
+  ctx.fill()
+}
+
+function drawTrashCan(
+  ctx: CanvasRenderingContext2D,
+  worldOriginX: number,
+  worldOriginY: number,
+  zoom: number,
+  col: number,
+  row: number,
+): void {
+  const s = TILE_SIZE * zoom
+  const x = worldOriginX + col * s
+  const y = worldOriginY + row * s
+
+  const size = s * 0.45
+  ctx.fillStyle = TRASH_CAN_BASE
+  ctx.fillRect(x + s * 0.28, y + s * 0.28, size, size)
+  ctx.fillStyle = TRASH_CAN_LID
+  ctx.fillRect(x + s * 0.32, y + s * 0.32, size * 0.8, size * 0.8)
+}
+
+function drawFlowerPatch(
+  ctx: CanvasRenderingContext2D,
+  worldOriginX: number,
+  worldOriginY: number,
+  zoom: number,
+  col: number,
+  row: number,
+  variant = 0,
+): void {
+  const s = TILE_SIZE * zoom
+  const x = worldOriginX + col * s
+  const y = worldOriginY + row * s
+  const dot = Math.max(2, Math.round(zoom))
+
+  const colors = [
+    [FLOWER_RED, FLOWER_YELLOW],
+    [FLOWER_PURPLE, FLOWER_WHITE],
+    [FLOWER_RED, FLOWER_WHITE],
+  ]
+  const [c1, c2] = colors[variant % colors.length]
+
+  ctx.fillStyle = c1
+  ctx.fillRect(x + s * 0.2, y + s * 0.3, dot, dot)
+  ctx.fillRect(x + s * 0.7, y + s * 0.2, dot, dot)
+  ctx.fillStyle = c2
+  ctx.fillRect(x + s * 0.4, y + s * 0.6, dot, dot)
+  ctx.fillRect(x + s * 0.8, y + s * 0.7, dot, dot)
+}
+
+function drawPuddle(
+  ctx: CanvasRenderingContext2D,
+  worldOriginX: number,
+  worldOriginY: number,
+  zoom: number,
+  col: number,
+  row: number,
+): void {
+  const s = TILE_SIZE * zoom
+  const x = worldOriginX + col * s
+  const y = worldOriginY + row * s
+
+  ctx.fillStyle = PUDDLE_COLOR
+  ctx.beginPath()
+  ctx.ellipse(x + s * 0.5, y + s * 0.5, s * 0.6, s * 0.3, Math.PI / 4, 0, Math.PI * 2)
+  ctx.fill()
+}
+
+function drawSidewalkCracks(
+  ctx: CanvasRenderingContext2D,
+  worldOriginX: number,
+  worldOriginY: number,
+  zoom: number,
+  rect: RectSpec,
+): void {
+  const s = TILE_SIZE * zoom
+  ctx.strokeStyle = CRACK_COLOR
+  ctx.lineWidth = Math.max(1, Math.round(zoom * 0.8))
+
+  const crackCount = 5
+  for (let i = 0; i < crackCount; i++) {
+    const seed = rect.col * 101 + rect.row * 211 + rect.w * 307 + rect.h * 401 + i * 503
+    const start: PointSpec = {
+      x: worldOriginX + (rect.col + deterministicUnit(seed) * rect.w) * s,
+      y: worldOriginY + (rect.row + deterministicUnit(seed + 1) * rect.h) * s,
+    }
+    const bend: PointSpec = {
+      x: start.x + (deterministicUnit(seed + 2) - 0.5) * s * 0.6,
+      y: start.y + deterministicUnit(seed + 3) * s * 0.7,
+    }
+    const end: PointSpec = {
+      x: bend.x + (deterministicUnit(seed + 4) - 0.5) * s * 0.4,
+      y: bend.y + deterministicUnit(seed + 5) * s * 0.5,
+    }
+
+    ctx.beginPath()
+    ctx.moveTo(start.x, start.y)
+    ctx.lineTo(bend.x, bend.y)
+    ctx.lineTo(end.x, end.y)
+    ctx.stroke()
+  }
+}
+
+function drawRock(
+  ctx: CanvasRenderingContext2D,
+  worldOriginX: number,
+  worldOriginY: number,
+  zoom: number,
+  col: number,
+  row: number,
+): void {
+  const s = TILE_SIZE * zoom
+  const x = worldOriginX + col * s
+  const y = worldOriginY + row * s
+
+  ctx.fillStyle = ROCK_BASE
+  ctx.beginPath()
+  ctx.arc(x + s * 0.4, y + s * 0.5, s * 0.25, 0, Math.PI * 2)
+  ctx.arc(x + s * 0.65, y + s * 0.6, s * 0.2, 0, Math.PI * 2)
+  ctx.fill()
+
+  ctx.fillStyle = ROCK_SHADE
+  ctx.beginPath()
+  ctx.arc(x + s * 0.35, y + s * 0.55, s * 0.12, 0, Math.PI * 2)
+  ctx.fill()
 }
 
 function drawHydrant(
@@ -324,6 +574,55 @@ function drawCurb(
   ctx.strokeRect(x, y, w, h)
 }
 
+function drawOilSpill(
+  ctx: CanvasRenderingContext2D,
+  worldOriginX: number,
+  worldOriginY: number,
+  zoom: number,
+  col: number,
+  row: number,
+): void {
+  const s = TILE_SIZE * zoom
+  const x = worldOriginX + col * s
+  const y = worldOriginY + row * s
+
+  ctx.fillStyle = 'rgba(20, 20, 25, 0.3)'
+  ctx.beginPath()
+  ctx.arc(x + s * 0.5, y + s * 0.5, s * 0.4, 0, Math.PI * 2)
+  ctx.arc(x + s * 0.3, y + s * 0.4, s * 0.2, 0, Math.PI * 2)
+  ctx.fill()
+}
+
+function drawBench(
+  ctx: CanvasRenderingContext2D,
+  worldOriginX: number,
+  worldOriginY: number,
+  zoom: number,
+  col: number,
+  row: number,
+  vertical = false,
+): void {
+  const s = TILE_SIZE * zoom
+  const x = worldOriginX + col * s
+  const y = worldOriginY + row * s
+  const leg = Math.max(2, Math.round(zoom * 1.4))
+  ctx.fillStyle = BENCH_METAL
+  if (vertical) {
+    ctx.fillRect(x + s * 0.25, y + s * 0.15, leg, s * 0.7)
+    ctx.fillRect(x + s * 0.65, y + s * 0.15, leg, s * 0.7)
+    ctx.fillStyle = BENCH_WOOD
+    ctx.fillRect(x + s * 0.32, y + s * 0.2, s * 0.3, s * 0.16)
+    ctx.fillRect(x + s * 0.32, y + s * 0.48, s * 0.3, s * 0.16)
+    return
+  }
+
+  ctx.fillRect(x + s * 0.15, y + s * 0.25, s * 0.7, leg)
+  ctx.fillRect(x + s * 0.15, y + s * 0.65, s * 0.7, leg)
+  ctx.fillStyle = BENCH_WOOD
+  ctx.fillRect(x + s * 0.2, y + s * 0.32, s * 0.6, s * 0.12)
+  ctx.fillRect(x + s * 0.2, y + s * 0.5, s * 0.6, s * 0.12)
+}
+
 export function renderExterior(
   ctx: CanvasRenderingContext2D,
   worldOriginX: number,
@@ -331,6 +630,7 @@ export function renderExterior(
   zoom: number,
   cols: number,
   rows: number,
+  time: number,
 ): void {
   const { worldCols, worldRows } = getExteriorMetrics(cols, rows, zoom)
 
@@ -367,6 +667,8 @@ export function renderExterior(
   drawPaverTexture(ctx, worldOriginX, worldOriginY, zoom, lotRect, SIDEWALK_BASE, SIDEWALK_SHADE)
   drawPaverTexture(ctx, worldOriginX, worldOriginY, zoom, plazaRect, PLAZA_BASE, PLAZA_SHADE)
 
+  drawSidewalkCracks(ctx, worldOriginX, worldOriginY, zoom, lotRect)
+
   fillRectTiles(ctx, worldOriginX, worldOriginY, zoom, rightRoad, ROAD_BASE)
   fillRectTiles(ctx, worldOriginX, worldOriginY, zoom, bottomRoad, ROAD_BASE)
   fillRectTiles(
@@ -399,6 +701,15 @@ export function renderExterior(
 
   drawCurb(ctx, worldOriginX, worldOriginY, zoom, cols, rows)
   drawFountain(ctx, worldOriginX, worldOriginY, zoom, plazaRect.col + 2, plazaRect.row + 3)
+
+  drawStreetLight(ctx, worldOriginX, worldOriginY, zoom, lotRect.col - 1, lotRect.row + 5)
+  drawStreetLight(ctx, worldOriginX, worldOriginY, zoom, lotRect.col + lotRect.w, lotRect.row + 5)
+  drawStreetLight(ctx, worldOriginX, worldOriginY, zoom, lotRect.col + 5, lotRect.row - 1)
+  drawStreetLight(ctx, worldOriginX, worldOriginY, zoom, plazaRect.col + 3, plazaRect.row - 1)
+
+  drawTrashCan(ctx, worldOriginX, worldOriginY, zoom, plazaRect.col - 1, plazaRect.row + 4)
+  drawTrashCan(ctx, worldOriginX, worldOriginY, zoom, buildingCol - 2, buildingRow + rows + 1)
+
   drawBench(ctx, worldOriginX, worldOriginY, zoom, plazaRect.col + 1, plazaRect.row + 1)
   drawBench(ctx, worldOriginX, worldOriginY, zoom, plazaRect.col + 4, plazaRect.row + 1)
   drawBench(ctx, worldOriginX, worldOriginY, zoom, plazaRect.col + 1, plazaRect.row + 7)
@@ -406,21 +717,54 @@ export function renderExterior(
   drawBench(ctx, worldOriginX, worldOriginY, zoom, buildingCol - 6, buildingRow + rows + 1, true)
 
   const treePositions = [
-    [buildingCol - 8, buildingRow - 4],
-    [buildingCol - 5, buildingRow + 2],
-    [buildingCol - 9, buildingRow + 10],
-    [buildingCol + cols + 3, buildingRow - 4],
-    [buildingCol + cols + 5, buildingRow + 1],
-    [buildingCol + cols + 3, buildingRow + rows - 2],
-    [buildingCol - 7, buildingRow + rows - 4],
-    [buildingCol - 3, buildingRow + rows + 2],
-    [plazaRect.col + 1, plazaRect.row + plazaRect.h + 1],
-    [plazaRect.col + 4, plazaRect.row + plazaRect.h + 1],
+    [buildingCol - 8, buildingRow - 4, 1],
+    [buildingCol - 5, buildingRow + 2, 0],
+    [buildingCol - 9, buildingRow + 10, 1],
+    [buildingCol + cols + 3, buildingRow - 4, 0],
+    [buildingCol + cols + 5, buildingRow + 1, 1],
+    [buildingCol + cols + 3, buildingRow + rows - 2, 0],
+    [buildingCol - 7, buildingRow + rows - 4, 1],
+    [buildingCol - 3, buildingRow + rows + 2, 0],
+    [plazaRect.col + 1, plazaRect.row + plazaRect.h + 1, 1],
+    [plazaRect.col + 4, plazaRect.row + plazaRect.h + 1, 0],
   ] as const
 
-  for (const [col, row] of treePositions) {
-    drawTree(ctx, worldOriginX, worldOriginY, zoom, col, row)
+  for (const [col, row, variant] of treePositions) {
+    drawTree(ctx, worldOriginX, worldOriginY, zoom, col, row, variant, time)
   }
+
+  const natureDetails = [
+    [buildingCol - 4, buildingRow - 3, 'flower', 0],
+    [buildingCol - 10, buildingRow + 5, 'rock', 0],
+    [buildingCol + cols + 5, buildingRow + 15, 'flower', 1],
+    [buildingCol + 10, buildingRow + rows + 8, 'flower', 2],
+    [buildingCol - 5, buildingRow + rows + 10, 'rock', 0],
+    [buildingCol + 5, buildingRow - 5, 'puddle', 0],
+  ] as const
+
+  for (const [col, row, type, variant] of natureDetails) {
+    if (type === 'flower') {
+      drawFlowerPatch(ctx, worldOriginX, worldOriginY, zoom, col, row, variant)
+    } else if (type === 'rock') {
+      drawRock(ctx, worldOriginX, worldOriginY, zoom, col, row)
+    } else if (type === 'puddle') {
+      drawPuddle(ctx, worldOriginX, worldOriginY, zoom, col, row)
+    }
+  }
+
+  drawOilSpill(ctx, worldOriginX, worldOriginY, zoom, rightRoad.col + 1, buildingRow + 2)
+  drawOilSpill(ctx, worldOriginX, worldOriginY, zoom, buildingCol + 15, bottomRoad.row + 3)
+
+  // Lanes and Directions
+  // Vertical Road: Left Lane (col + 0.8) goes UP, Right Lane (col + 3.2) goes DOWN
+  drawCar(ctx, worldOriginX, worldOriginY, zoom, rightRoad.col + 0.8, buildingRow - 2, CAR_RED, true, time, false)
+  drawCar(ctx, worldOriginX, worldOriginY, zoom, rightRoad.col + 3.2, buildingRow + 4, CAR_GRAY, true, time, true)
+  drawCar(ctx, worldOriginX, worldOriginY, zoom, rightRoad.col + 0.8, buildingRow + 15, CAR_BLUE, true, time, false)
+
+  // Horizontal Road: Top Lane (row + 0.8) goes RIGHT, Bottom Lane (row + 3.2) goes LEFT
+  drawCar(ctx, worldOriginX, worldOriginY, zoom, buildingCol + 2, bottomRoad.row + 0.8, CAR_GREEN, false, time, false)
+  drawCar(ctx, worldOriginX, worldOriginY, zoom, buildingCol + 12, bottomRoad.row + 3.2, CAR_RED, false, time, true)
+  drawCar(ctx, worldOriginX, worldOriginY, zoom, buildingCol + 20, bottomRoad.row + 0.8, CAR_GRAY, false, time, false)
 
   drawHydrant(ctx, worldOriginX, worldOriginY, zoom, rightRoad.col - 2, buildingRow + 13)
   drawManhole(ctx, worldOriginX, worldOriginY, zoom, rightRoad.col + 2, buildingRow + 5)

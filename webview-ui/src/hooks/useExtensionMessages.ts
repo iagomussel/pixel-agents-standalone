@@ -48,6 +48,13 @@ export interface AgentMessage {
   done: boolean
 }
 
+export interface AgentConversationEntry {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+  timestamp: number
+}
+
 export type AgentSource = 'claude' | 'codex' | 'opencode' | 'gemini'
 
 export interface ExtensionMessageState {
@@ -61,11 +68,14 @@ export interface ExtensionMessageState {
   loadedAssets?: { catalog: FurnitureAsset[]; sprites: Record<string, string[][]> }
   workspaceFolders: WorkspaceFolder[]
   agentMessages: Record<number, AgentMessage[]>
+  agentConversations: Record<number, AgentConversationEntry[]>
   agentNames: Record<number, string>
   agentSources: Record<number, AgentSource>
+  agentResumeCommands: Record<number, string>
   updateAgentName: (id: number, name: string) => void
   agentWorkingDirs: Record<number, string>
   agentTokens: Record<number, { input: number; output: number }>
+  agentFolderNames: Record<number, string>
   sendAgentMessage: (agentId: number, text: string) => void
   handlePermissionAction: (agentId: number, action: 'approve' | 'deny') => void
 }
@@ -80,6 +90,7 @@ function saveAgentSeats(os: OfficeState): void {
 }
 
 const MAX_MESSAGES_PER_AGENT = 30
+const MAX_CONVERSATION_ENTRIES = 24
 
 function appendMessage(
   prev: Record<number, AgentMessage[]>,
@@ -89,6 +100,20 @@ function appendMessage(
   const list = prev[id] || []
   const next = [...list, msg]
   return { ...prev, [id]: next.length > MAX_MESSAGES_PER_AGENT ? next.slice(-MAX_MESSAGES_PER_AGENT) : next }
+}
+
+function appendConversation(
+  prev: Record<number, AgentConversationEntry[]>,
+  id: number,
+  entry: AgentConversationEntry,
+): Record<number, AgentConversationEntry[]> {
+  const list = prev[id] || []
+  const lastEntry = list[list.length - 1]
+  if (lastEntry && lastEntry.role === entry.role && lastEntry.text === entry.text) {
+    return prev
+  }
+  const next = [...list, entry]
+  return { ...prev, [id]: next.length > MAX_CONVERSATION_ENTRIES ? next.slice(-MAX_CONVERSATION_ENTRIES) : next }
 }
 
 export function useExtensionMessages(
@@ -106,10 +131,13 @@ export function useExtensionMessages(
   const [loadedAssets, setLoadedAssets] = useState<{ catalog: FurnitureAsset[]; sprites: Record<string, string[][]> } | undefined>()
   const [workspaceFolders, setWorkspaceFolders] = useState<WorkspaceFolder[]>([])
   const [agentMessages, setAgentMessages] = useState<Record<number, AgentMessage[]>>({})
+  const [agentConversations, setAgentConversations] = useState<Record<number, AgentConversationEntry[]>>({})
   const [agentNames, setAgentNames] = useState<Record<number, string>>({})
   const [agentSources, setAgentSources] = useState<Record<number, AgentSource>>({})
+  const [agentResumeCommands, setAgentResumeCommands] = useState<Record<number, string>>({})
   const [agentWorkingDirs, setAgentWorkingDirs] = useState<Record<number, string>>({})
   const [agentTokens, setAgentTokens] = useState<Record<number, { input: number; output: number }>>({})
+  const [agentFolderNames, setAgentFolderNames] = useState<Record<number, string>>({})
 
   // Track whether initial layout has been loaded (ref to avoid re-render)
   const layoutReadyRef = useRef(false)
@@ -117,11 +145,22 @@ export function useExtensionMessages(
   const sendAgentMessage = useCallback((agentId: number, text: string) => {
     const trimmed = text.trim()
     if (!trimmed) return
+    const timestamp = Date.now()
+    if (trimmed !== '/compact') {
+      setAgentConversations((prev) =>
+        appendConversation(prev, agentId, {
+          id: `user-${timestamp}`,
+          role: 'user',
+          text: trimmed,
+          timestamp,
+        }),
+      )
+    }
     setAgentMessages((prev) =>
       appendMessage(prev, agentId, {
-        id: `user-${Date.now()}`,
+        id: `user-${timestamp}`,
         text: `You: ${trimmed}`,
-        timestamp: Date.now(),
+        timestamp,
         kind: 'info',
         done: true,
       }),
@@ -193,15 +232,28 @@ export function useExtensionMessages(
         const id = msg.id as number
         const folderName = msg.folderName as string | undefined
         const source = (msg.source as AgentSource | undefined) ?? 'claude'
+        const resumeCommand = typeof msg.resumeCommand === 'string' ? msg.resumeCommand : null
         setAgents((prev) => (prev.includes(id) ? prev : [...prev, id]))
         setSelectedAgent(id)
         setAgentSources((prev) => ({ ...prev, [id]: source }))
+        if (resumeCommand) {
+          setAgentResumeCommands((prev) => ({ ...prev, [id]: resumeCommand }))
+        }
+        if (folderName) {
+          setAgentFolderNames((prev) => ({ ...prev, [id]: folderName }))
+        }
         os.addAgent(id, undefined, undefined, undefined, undefined, folderName, source)
         saveAgentSeats(os)
-      } else if (msg.type === 'agentClosed') {
+      } else if (msg.type === 'agentClosed' || msg.type === 'agentLaidOff') {
         const id = msg.id as number
         setAgents((prev) => prev.filter((a) => a !== id))
         setSelectedAgent((prev) => (prev === id ? null : prev))
+        setAgentFolderNames((prev) => {
+          if (!(id in prev)) return prev
+          const next = { ...prev }
+          delete next[id]
+          return next
+        })
         setAgentTools((prev) => {
           if (!(id in prev)) return prev
           const next = { ...prev }
@@ -226,6 +278,12 @@ export function useExtensionMessages(
           delete next[id]
           return next
         })
+        setAgentConversations((prev) => {
+          if (!(id in prev)) return prev
+          const next = { ...prev }
+          delete next[id]
+          return next
+        })
         setAgentWorkingDirs((prev) => {
           if (!(id in prev)) return prev
           const next = { ...prev }
@@ -233,6 +291,12 @@ export function useExtensionMessages(
           return next
         })
         setAgentSources((prev) => {
+          if (!(id in prev)) return prev
+          const next = { ...prev }
+          delete next[id]
+          return next
+        })
+        setAgentResumeCommands((prev) => {
           if (!(id in prev)) return prev
           const next = { ...prev }
           delete next[id]
@@ -253,11 +317,14 @@ export function useExtensionMessages(
         const meta = (msg.agentMeta || {}) as Record<number, { palette?: number; hueShift?: number; seatId?: string }>
         const folderNames = (msg.folderNames || {}) as Record<number, string>
         const incomingSources = (msg.agentSources || {}) as Record<number, AgentSource>
+        const incomingResumeCommands = (msg.agentResumeCommands || {}) as Record<number, string>
+        setAgentFolderNames((prev) => ({ ...prev, ...folderNames }))
         // Buffer agents — they'll be added in layoutLoaded after seats are built
         for (const id of incoming) {
           const m = meta[id]
           pendingAgents.push({ id, palette: m?.palette, hueShift: m?.hueShift, seatId: m?.seatId, folderName: folderNames[id], source: incomingSources[id] })
         }
+        setAgentResumeCommands((prev) => ({ ...prev, ...incomingResumeCommands }))
         setAgentSources((prev) => {
           const next = { ...prev }
           for (const id of incoming) {
@@ -502,6 +569,10 @@ export function useExtensionMessages(
         const id = msg.id as number
         const dir = msg.dir as string
         setAgentWorkingDirs((prev) => ({ ...prev, [id]: dir }))
+      } else if (msg.type === 'agentConversationHistory') {
+        const id = msg.id as number
+        const entries = Array.isArray(msg.entries) ? msg.entries as AgentConversationEntry[] : []
+        setAgentConversations((prev) => ({ ...prev, [id]: entries.slice(-MAX_CONVERSATION_ENTRIES) }))
       } else if (msg.type === 'agentTokenUsage') {
         const id = msg.id as number
         setAgentTokens((prev) => ({
@@ -518,5 +589,5 @@ export function useExtensionMessages(
     return () => window.removeEventListener('message', handler)
   }, [getOfficeState])
 
-  return { agents, selectedAgent, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets, workspaceFolders, agentMessages, agentNames, agentSources, updateAgentName, agentWorkingDirs, agentTokens, sendAgentMessage, handlePermissionAction }
+  return { agents, selectedAgent, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets, workspaceFolders, agentMessages, agentConversations, agentNames, agentSources, agentResumeCommands, updateAgentName, agentWorkingDirs, agentTokens, agentFolderNames, sendAgentMessage, handlePermissionAction }
 }

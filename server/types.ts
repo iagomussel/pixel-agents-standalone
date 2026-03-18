@@ -1,12 +1,20 @@
 // Agent activity states
 export type AgentActivity = "idle" | "typing" | "reading" | "waiting" | "permission";
 export type AgentSource = "claude" | "codex" | "opencode" | "gemini";
+export type AgentConversationRole = "user" | "assistant";
 
 // Tool info for speech bubbles
 export interface ActiveTool {
   toolId: string;
   toolName: string;
   status: string;
+}
+
+export interface AgentConversationEntry {
+  id: string;
+  role: AgentConversationRole;
+  text: string;
+  timestamp: number;
 }
 
 // Agent as tracked by the server
@@ -31,14 +39,16 @@ export interface TrackedAgent {
   currentWorkingDir: string | null;
   totalInputTokens: number;
   totalOutputTokens: number;
+  conversationEntries: AgentConversationEntry[];
 }
 
 // Messages sent from server to client via WebSocket
 // Must match the upstream message format expected by useExtensionMessages
 export type ServerMessage =
-  | { type: "agentCreated"; id: number; folderName: string; source?: AgentSource }
+  | { type: "agentCreated"; id: number; folderName: string; source?: AgentSource; resumeCommand?: string }
   | { type: "agentClosed"; id: number }
-  | { type: "existingAgents"; agents: number[]; folderNames: Record<number, string>; agentMeta?: Record<number, { palette?: number; hueShift?: number; seatId?: string }>; agentSources?: Record<number, AgentSource> }
+  | { type: "agentLaidOff"; id: number }
+  | { type: "existingAgents"; agents: number[]; folderNames: Record<number, string>; agentMeta?: Record<number, { palette?: number; hueShift?: number; seatId?: string }>; agentSources?: Record<number, AgentSource>; agentResumeCommands?: Record<number, string> }
   | { type: "agentToolStart"; id: number; toolId: string; status: string }
   | { type: "agentToolDone"; id: number; toolId: string }
   | { type: "agentToolsClear"; id: number }
@@ -58,7 +68,8 @@ export type ServerMessage =
   | { type: "settingsLoaded"; soundEnabled: boolean }
   | { type: "agentNamesLoaded"; names: Record<number, string> }
   | { type: "agentWorkingDir"; id: number; dir: string }
-  | { type: "agentTokenUsage"; id: number; inputTokens: number; outputTokens: number; totalInput: number; totalOutput: number };
+  | { type: "agentTokenUsage"; id: number; inputTokens: number; outputTokens: number; totalInput: number; totalOutput: number }
+  | { type: "agentConversationHistory"; id: number; entries: AgentConversationEntry[] };
 
 // Messages sent from client to server
 export type ClientMessage =
@@ -69,6 +80,7 @@ export type ClientMessage =
   | { type: "saveAgentNames"; names: Record<number, string> }
   | { type: "userMessage"; agentId: number; text: string }
   | { type: "permissionAction"; agentId: number; action: "approve" | "deny" }
+  | { type: "layoffAgent"; id: number }
   | { type: "openClaude"; folderPath?: string }
   | { type: "launchAgent"; provider: AgentSource; folderPath: string }
   | { type: "focusAgent"; id: number }

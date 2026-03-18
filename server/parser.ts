@@ -9,11 +9,112 @@ const TOOL_DONE_DELAY_MS = 300;
 const BASH_COMMAND_DISPLAY_MAX_LENGTH = 30;
 const TASK_DESCRIPTION_DISPLAY_MAX_LENGTH = 40;
 const IDLE_ACTIVITY_TIMEOUT_MS = 120_000; // 2 min — long-running tools (builds, tests) need time
+const MAX_CONVERSATION_ENTRIES = 24;
 
 // Timer maps (module-level)
 const waitingTimers = new Map<number, ReturnType<typeof setTimeout>>();
 const permissionTimers = new Map<number, ReturnType<typeof setTimeout>>();
 const idleTimeoutTimers = new Map<number, ReturnType<typeof setTimeout>>();
+
+function normalizeConversationText(text: string): string | null {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return normalized ? normalized : null;
+}
+
+function extractTimestamp(record: Record<string, unknown>): number {
+  const value = record.timestamp;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 1_000_000_000_000 ? value : value * 1000;
+  }
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return Date.now();
+}
+
+function emitConversationHistory(
+  agent: TrackedAgent,
+  emit: (msg: ServerMessage) => void,
+): void {
+  emit({
+    type: "agentConversationHistory",
+    id: agent.id,
+    entries: agent.conversationEntries,
+  });
+}
+
+function appendConversationEntry(
+  agent: TrackedAgent,
+  role: "user" | "assistant",
+  text: string,
+  timestamp: number,
+  emit: (msg: ServerMessage) => void,
+): void {
+  const normalized = normalizeConversationText(text);
+  if (!normalized) return;
+
+  const lastEntry = agent.conversationEntries[agent.conversationEntries.length - 1];
+  if (lastEntry && lastEntry.role === role && lastEntry.text === normalized) {
+    return;
+  }
+
+  const id = `${role}-${timestamp}-${agent.conversationEntries.length}`;
+  agent.conversationEntries = [...agent.conversationEntries, { id, role, text: normalized, timestamp }]
+    .slice(-MAX_CONVERSATION_ENTRIES);
+  emitConversationHistory(agent, emit);
+}
+
+function extractClaudeText(content: unknown): string[] {
+  if (typeof content === "string") {
+    const normalized = normalizeConversationText(content);
+    return normalized ? [normalized] : [];
+  }
+  if (!Array.isArray(content)) return [];
+
+  return content
+    .flatMap((block) => {
+      if (!block || typeof block !== "object") return [];
+      const typedBlock = block as Record<string, unknown>;
+      if (typedBlock.type !== "text" || typeof typedBlock.text !== "string") {
+        return [];
+      }
+      const normalized = normalizeConversationText(typedBlock.text);
+      return normalized ? [normalized] : [];
+    });
+}
+
+function extractCodexContentText(content: unknown): string[] {
+  if (!Array.isArray(content)) return [];
+
+  return content
+    .flatMap((part) => {
+      if (!part || typeof part !== "object") return [];
+      const typedPart = part as Record<string, unknown>;
+      const partType = typedPart.type;
+
+      if ((partType === "input_text" || partType === "output_text" || partType === "text")
+        && typeof typedPart.text === "string") {
+        const normalized = normalizeConversationText(typedPart.text);
+        return normalized ? [normalized] : [];
+      }
+
+      if (partType === "text" && typedPart.text && typeof typedPart.text === "object") {
+        const nestedText = (typedPart.text as Record<string, unknown>).value;
+        if (typeof nestedText === "string") {
+          const normalized = normalizeConversationText(nestedText);
+          return normalized ? [normalized] : [];
+        }
+      }
+
+      if (typeof typedPart.content === "string") {
+        const normalized = normalizeConversationText(typedPart.content);
+        return normalized ? [normalized] : [];
+      }
+
+      return [];
+    });
+}
 
 function extractWorkingDir(toolName: string, input: Record<string, unknown>): string | null {
   const filePath =
@@ -285,6 +386,11 @@ function handleAssistantMessage(
 
   const content = message.content as Array<Record<string, unknown>>;
   if (!Array.isArray(content)) return;
+  const timestamp = extractTimestamp(record);
+  const textBlocks = extractClaudeText(content);
+  if (textBlocks.length > 0) {
+    appendConversationEntry(agent, "assistant", textBlocks.join("\n\n"), timestamp, emit);
+  }
 
   const hasToolUse = content.some((b) => b.type === "tool_use");
 
@@ -460,6 +566,10 @@ function handleCodexResponseItem(
 
   if (payloadType === "message") {
     const role = payload.role as string | undefined;
+    const textBlocks = extractCodexContentText(payload.content);
+    if ((role === "user" || role === "assistant") && textBlocks.length > 0) {
+      appendConversationEntry(agent, role, textBlocks.join("\n\n"), extractTimestamp(record), emit);
+    }
     if (role === "user") {
       cancelTimer(agent.id, waitingTimers);
       cancelTimer(agent.id, idleTimeoutTimers);
@@ -524,6 +634,10 @@ function handleUserMessage(
         agent.hadToolsInTurn = false;
       }
     } else {
+      const textBlocks = extractClaudeText(blocks);
+      if (textBlocks.length > 0) {
+        appendConversationEntry(agent, "user", textBlocks.join("\n\n"), extractTimestamp(record), emit);
+      }
       // New user text prompt — new turn starting
       cancelTimer(agent.id, waitingTimers);
       cancelTimer(agent.id, idleTimeoutTimers);
@@ -531,6 +645,7 @@ function handleUserMessage(
       agent.hadToolsInTurn = false;
     }
   } else if (typeof content === "string" && (content as string).trim()) {
+    appendConversationEntry(agent, "user", content, extractTimestamp(record), emit);
     cancelTimer(agent.id, waitingTimers);
     cancelTimer(agent.id, idleTimeoutTimers);
     clearAgentActivity(agent, emit);

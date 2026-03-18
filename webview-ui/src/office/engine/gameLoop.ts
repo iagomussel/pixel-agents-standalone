@@ -2,7 +2,7 @@ import { MAX_DELTA_TIME_SEC } from '../../constants.js'
 
 export interface GameLoopCallbacks {
   update: (dt: number) => void
-  render: (ctx: CanvasRenderingContext2D) => void
+  render: (ctx: CanvasRenderingContext2D, time: number) => void
 }
 
 export function startGameLoop(
@@ -24,7 +24,7 @@ export function startGameLoop(
     callbacks.update(dt)
 
     ctx.imageSmoothingEnabled = false
-    callbacks.render(ctx)
+    callbacks.render(ctx, time)
 
     rafId = requestAnimationFrame(frame)
   }

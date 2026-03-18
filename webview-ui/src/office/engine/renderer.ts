@@ -592,6 +592,7 @@ export function renderFrame(
   tileColors?: Array<FloorColor | null>,
   layoutCols?: number,
   layoutRows?: number,
+  time?: number,
 ): { offsetX: number; offsetY: number } {
   // Clear
   ctx.clearRect(0, 0, canvasWidth, canvasHeight)
@@ -607,7 +608,7 @@ export function renderFrame(
   const offsetX = worldOriginX + exterior.padLeftPx
   const offsetY = worldOriginY + exterior.padTopPx
 
-  renderExterior(ctx, worldOriginX, worldOriginY, zoom, cols, rows)
+  renderExterior(ctx, worldOriginX, worldOriginY, zoom, cols, rows, time ?? 0)
 
   // Draw tiles (floor + wall base color)
   renderTileGrid(ctx, tileMap, offsetX, offsetY, zoom, tileColors, layoutCols)
