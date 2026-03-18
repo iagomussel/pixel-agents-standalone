@@ -75,10 +75,6 @@ npm run extract-furniture
 - **[pixel-agents](https://github.com/pablodelucca/pixel-agents)** by Pablo De Lucca — original VS Code extension (MIT License)
 - **[Office Interior Tileset](https://donarg.itch.io/office-interior-tileset-16x16)** by Donarg — pixel art furniture (purchased separately)
 
-## Repository
-
-- **origin** — this repo (your clone).
-- **upstream** — [pixel-agents](https://github.com/pablodelucca/pixel-agents) (original).
 
 ## License
 
