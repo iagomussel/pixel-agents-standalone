@@ -13,6 +13,8 @@ interface AgentChatDialogProps {
   messages: AgentMessage[]
   onClose: () => void
   onRename: (name: string) => void
+  onSendMessage: (text: string) => void
+  onPermissionAction: (action: 'approve' | 'deny') => void
 }
 
 const DIALOG_WIDTH = 260
@@ -29,11 +31,16 @@ export function AgentChatDialog({
   messages,
   onClose,
   onRename,
+  onSendMessage,
+  onPermissionAction,
 }: AgentChatDialogProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [isRenaming, setIsRenaming] = useState(false)
   const [editName, setEditName] = useState(displayName)
   const inputRef = useRef<HTMLInputElement>(null)
+  const chatInputRef = useRef<HTMLInputElement>(null)
+  const [chatText, setChatText] = useState('')
+  const [actedIds, setActedIds] = useState<Map<string, 'approve' | 'deny'>>(new Map())
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -69,6 +76,29 @@ export function AgentChatDialog({
       setEditName(displayName)
     }
   }, [finishRename, displayName])
+
+  const handleSend = useCallback(() => {
+    const trimmed = chatText.trim()
+    if (!trimmed) return
+    setChatText('')
+    onSendMessage(trimmed)
+  }, [chatText, onSendMessage])
+
+  const handleChatKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleSend()
+    }
+  }, [handleSend])
+
+  const handlePermissionAction = useCallback((msgId: string, action: 'approve' | 'deny') => {
+    setActedIds((prev) => {
+      const next = new Map(prev)
+      next.set(msgId, action)
+      return next
+    })
+    onPermissionAction(action)
+  }, [onPermissionAction])
 
   const visibleMessages = messages.slice(-12)
 
@@ -266,6 +296,56 @@ export function AgentChatDialog({
               >
                 {m.text}
               </span>
+              {m.kind === 'permission' && !m.done && (
+                actedIds.has(m.id) ? (
+                  <span
+                    style={{
+                      fontSize: '16px',
+                      flexShrink: 0,
+                      color: actedIds.get(m.id) === 'approve' ? '#4caf50' : '#f44336',
+                    }}
+                  >
+                    {actedIds.get(m.id) === 'approve' ? 'Approved ✓' : 'Denied ✗'}
+                  </span>
+                ) : (
+                  <span style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
+                    <button
+                      onClick={() => handlePermissionAction(m.id, 'approve')}
+                      title="Approve"
+                      style={{
+                        background: 'none',
+                        border: '1px solid #4caf50',
+                        color: '#4caf50',
+                        cursor: 'pointer',
+                        padding: '0 4px',
+                        fontSize: '18px',
+                        lineHeight: 1,
+                        borderRadius: 0,
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      ✓
+                    </button>
+                    <button
+                      onClick={() => handlePermissionAction(m.id, 'deny')}
+                      title="Deny"
+                      style={{
+                        background: 'none',
+                        border: '1px solid #f44336',
+                        color: '#f44336',
+                        cursor: 'pointer',
+                        padding: '0 4px',
+                        fontSize: '18px',
+                        lineHeight: 1,
+                        borderRadius: 0,
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      ✗
+                    </button>
+                  </span>
+                )
+              )}
             </div>
           ))}
           <div ref={messagesEndRef} />
@@ -277,6 +357,57 @@ export function AgentChatDialog({
           No activity yet
         </div>
       )}
+
+      {/* Chat input bar */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          borderTop: '1px solid var(--pixel-border)',
+          padding: '4px 6px',
+          gap: 4,
+        }}
+      >
+        <input
+          ref={chatInputRef}
+          value={chatText}
+          onChange={(e) => setChatText(e.target.value)}
+          onKeyDown={handleChatKeyDown}
+          onClick={(e) => e.stopPropagation()}
+          placeholder="Message agent..."
+          style={{
+            flex: 1,
+            fontSize: '17px',
+            background: 'var(--vscode-input-background)',
+            color: 'var(--vscode-input-foreground)',
+            border: '1px solid var(--pixel-border)',
+            padding: '2px 6px',
+            outline: 'none',
+            fontFamily: 'inherit',
+            borderRadius: 0,
+          }}
+        />
+        <button
+          onClick={handleSend}
+          title="Send message"
+          style={{
+            background: 'none',
+            border: '1px solid var(--pixel-border-light)',
+            color: 'var(--vscode-foreground)',
+            cursor: 'pointer',
+            padding: '2px 8px',
+            fontSize: '20px',
+            lineHeight: 1,
+            borderRadius: 0,
+            fontFamily: 'inherit',
+            flexShrink: 0,
+          }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--pixel-accent)' }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--pixel-border-light)' }}
+        >
+          →
+        </button>
+      </div>
     </div>
   )
 }
