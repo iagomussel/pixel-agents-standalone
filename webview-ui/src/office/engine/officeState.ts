@@ -423,6 +423,63 @@ export class OfficeState {
     return id
   }
 
+  /** Find the walkable tile closest to any grid edge (used as exit destination) */
+  private findExitTile(fromCol: number, fromRow: number): { col: number; row: number } | null {
+    if (this.walkableTiles.length === 0) return null
+    const cols = this.layout.cols
+    const rows = this.layout.rows
+    // "Closeness to edge" = min distance to any border
+    const edgeDist = (c: number, r: number) => Math.min(c, r, cols - 1 - c, rows - 1 - r)
+    let best: { col: number; row: number } | null = null
+    let bestEdge = Infinity
+    let bestCharDist = Infinity
+    for (const tile of this.walkableTiles) {
+      const ed = edgeDist(tile.col, tile.row)
+      const cd = Math.abs(tile.col - fromCol) + Math.abs(tile.row - fromRow)
+      if (ed < bestEdge || (ed === bestEdge && cd < bestCharDist)) {
+        best = tile
+        bestEdge = ed
+        bestCharDist = cd
+      }
+    }
+    return best
+  }
+
+  /** Begin the exit sequence for a subagent: walk to edge, then despawn. */
+  private startSubagentExit(ch: Character): void {
+    ch.isExiting = true
+    ch.bubbleType = null
+    ch.bubbleTimer = 0
+    ch.isActive = false
+    // If still spawning, wait — update() will call this again once spawn finishes
+    if (ch.matrixEffect === 'spawn') return
+
+    const exitTile = this.findExitTile(ch.tileCol, ch.tileRow)
+    if (!exitTile) {
+      // No exit found — despawn in place
+      ch.matrixEffect = 'despawn'
+      ch.matrixEffectTimer = 0
+      ch.matrixEffectSeeds = matrixEffectSeeds()
+      return
+    }
+
+    const path = this.withOwnSeatUnblocked(ch, () =>
+      findPath(ch.tileCol, ch.tileRow, exitTile.col, exitTile.row, this.tileMap, this.blockedTiles)
+    )
+    if (path.length > 0) {
+      ch.path = path
+      ch.moveProgress = 0
+      ch.state = CharacterState.WALK
+      ch.frame = 0
+      ch.frameTimer = 0
+    } else {
+      // Can't reach exit — despawn in place
+      ch.matrixEffect = 'despawn'
+      ch.matrixEffectTimer = 0
+      ch.matrixEffectSeeds = matrixEffectSeeds()
+    }
+  }
+
   /** Remove a specific sub-agent character and free its seat */
   removeSubagent(parentAgentId: number, parentToolId: string): void {
     const key = `${parentAgentId}:${parentToolId}`
@@ -431,8 +488,8 @@ export class OfficeState {
 
     const ch = this.characters.get(id)
     if (ch) {
-      if (ch.matrixEffect === 'despawn') {
-        // Already despawning — just clean up maps
+      if (ch.matrixEffect === 'despawn' || ch.isExiting) {
+        // Already exiting — just clean up maps
         this.subagentIdMap.delete(key)
         this.subagentMeta.delete(id)
         return
@@ -441,11 +498,8 @@ export class OfficeState {
         const seat = this.seats.get(ch.seatId)
         if (seat) seat.assigned = false
       }
-      // Start despawn animation — keep character in map for rendering
-      ch.matrixEffect = 'despawn'
-      ch.matrixEffectTimer = 0
-      ch.matrixEffectSeeds = matrixEffectSeeds()
-      ch.bubbleType = null
+      // Start exit-walk sequence instead of immediate despawn
+      this.startSubagentExit(ch)
     }
     // Clean up tracking maps immediately so keys don't collide
     this.subagentIdMap.delete(key)
@@ -462,8 +516,8 @@ export class OfficeState {
       if (meta && meta.parentAgentId === parentAgentId) {
         const ch = this.characters.get(id)
         if (ch) {
-          if (ch.matrixEffect === 'despawn') {
-            // Already despawning — just clean up maps
+          if (ch.matrixEffect === 'despawn' || ch.isExiting) {
+            // Already exiting — just clean up maps
             this.subagentMeta.delete(id)
             toRemove.push(key)
             continue
@@ -472,11 +526,8 @@ export class OfficeState {
             const seat = this.seats.get(ch.seatId)
             if (seat) seat.assigned = false
           }
-          // Start despawn animation
-          ch.matrixEffect = 'despawn'
-          ch.matrixEffectTimer = 0
-          ch.matrixEffectSeeds = matrixEffectSeeds()
-          ch.bubbleType = null
+          // Start exit-walk sequence
+          this.startSubagentExit(ch)
         }
         this.subagentMeta.delete(id)
         if (this.selectedAgentId === id) this.selectedAgentId = null
@@ -625,6 +676,10 @@ export class OfficeState {
             ch.matrixEffect = null
             ch.matrixEffectTimer = 0
             ch.matrixEffectSeeds = []
+            // If marked for exit while spawning, start walk now
+            if (ch.isExiting) {
+              this.startSubagentExit(ch)
+            }
           } else {
             // Despawn complete — mark for deletion
             toDelete.push(ch.id)
@@ -637,6 +692,14 @@ export class OfficeState {
       this.withOwnSeatUnblocked(ch, () =>
         updateCharacter(ch, dt, this.walkableTiles, this.seats, this.tileMap, this.blockedTiles)
       )
+
+      // Exiting subagent arrived at edge tile — start despawn
+      if (ch.isExiting && ch.path.length === 0 && ch.state !== CharacterState.WALK) {
+        ch.matrixEffect = 'despawn'
+        ch.matrixEffectTimer = 0
+        ch.matrixEffectSeeds = matrixEffectSeeds()
+        continue
+      }
 
       // Tick bubble timer for waiting bubbles
       if (ch.bubbleType === 'waiting') {

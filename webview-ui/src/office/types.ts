@@ -52,6 +52,23 @@ export type Direction = (typeof Direction)[keyof typeof Direction]
 /** 2D array of hex color strings (or '' for transparent). [row][col] */
 export type SpriteData = string[][]
 
+/** Reference to a loaded PNG image (not serializable — runtime only). */
+export interface PngSpriteRef {
+  readonly _png: true
+  readonly img: HTMLImageElement
+  /** Pixel width of the sprite */
+  readonly w: number
+  /** Pixel height of the sprite */
+  readonly h: number
+  /** Source x offset in image (for atlas slicing, default 0) */
+  readonly sx?: number
+  /** Source y offset in image (for atlas slicing, default 0) */
+  readonly sy?: number
+}
+
+/** A sprite source: either a SpriteData pixel array or a PNG reference. */
+export type SpriteSource = SpriteData | PngSpriteRef
+
 export interface Seat {
   /** Chair furniture uid */
   uid: string
@@ -65,7 +82,7 @@ export interface Seat {
 }
 
 export interface FurnitureInstance {
-  sprite: SpriteData
+  sprite: SpriteSource
   /** Pixel x (top-left) */
   x: number
   /** Pixel y (top-left) */
@@ -110,7 +127,7 @@ export interface FurnitureCatalogEntry {
   label: string
   footprintW: number
   footprintH: number
-  sprite: SpriteData
+  sprite: SpriteSource
   isDesk: boolean
   category?: string
   /** Orientation from rotation group: 'front' | 'back' | 'left' | 'right' */
@@ -195,4 +212,6 @@ export interface Character {
   matrixEffectSeeds: number[]
   /** Workspace folder name (only set for multi-root workspaces) */
   folderName?: string
+  /** True while a subagent is walking to the exit before despawning */
+  isExiting: boolean
 }
