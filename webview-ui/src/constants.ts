@@ -6,6 +6,10 @@ export const DEFAULT_COLS = 20
 export const DEFAULT_ROWS = 27
 export const MAX_COLS = 64
 export const MAX_ROWS = 64
+export const EXTERIOR_PAD_LEFT_TILES = 12
+export const EXTERIOR_PAD_TOP_TILES = 10
+export const EXTERIOR_PAD_RIGHT_TILES = 16
+export const EXTERIOR_PAD_BOTTOM_TILES = 12
 
 // ── Character Animation ─────────────────────────────────────
 export const WALK_SPEED_PX_PER_SEC = 48
@@ -111,3 +115,11 @@ export const CHARACTER_HIT_HALF_WIDTH = 8
 export const CHARACTER_HIT_HEIGHT = 24
 export const TOOL_OVERLAY_VERTICAL_OFFSET = 32
 export const PULSE_ANIMATION_DURATION_SEC = 1.5
+
+// ── Tool Activity Animation ──────────────────────────────────
+export const TOOL_ANIM_PERIOD_SEC = 0.9
+export const TOOL_ANIM_DOT_COUNT = 3
+export const TOOL_ANIM_BASE_Y_OFFSET_PX = 20
+export const TOOL_ANIM_MAX_BOUNCE_PX = 3
+export const TOOL_ANIM_COLOR_TYPING = '#4fc3f7'
+export const TOOL_ANIM_COLOR_READING = '#81c784'

@@ -212,6 +212,10 @@ export interface Character {
   matrixEffectSeeds: number[]
   /** Workspace folder name (only set for multi-root workspaces) */
   folderName?: string
+  /** Provider backing this agent session */
+  source?: 'claude' | 'codex' | 'opencode' | 'gemini'
   /** True while a subagent is walking to the exit before despawning */
   isExiting: boolean
+  /** Timer driving the tool-usage animation (advances while isActive) */
+  toolAnimTimer: number
 }

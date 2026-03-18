@@ -2,8 +2,9 @@ import { TileType, TILE_SIZE, CharacterState } from '../types.js'
 import type { TileType as TileTypeVal, FurnitureInstance, Character, SpriteSource, Seat, FloorColor } from '../types.js'
 import { getCachedSprite, getOutlineSprite } from '../sprites/spriteCache.js'
 import { getCharacterSprites, BUBBLE_PERMISSION_SPRITE, BUBBLE_WAITING_SPRITE } from '../sprites/spriteData.js'
-import { getCharacterSprite } from './characters.js'
+import { getCharacterSprite, isReadingTool } from './characters.js'
 import { renderMatrixEffect } from './matrixEffect.js'
+import { getExteriorMetrics, renderExterior } from './exterior.js'
 import { getColorizedFloorSprite, hasFloorSprites, WALL_COLOR } from '../floorTiles.js'
 import { hasWallSprites, getWallInstances, wallColorToHex } from '../wallTiles.js'
 import {
@@ -38,6 +39,12 @@ import {
   SELECTION_HIGHLIGHT_COLOR,
   DELETE_BUTTON_BG,
   ROTATE_BUTTON_BG,
+  TOOL_ANIM_PERIOD_SEC,
+  TOOL_ANIM_DOT_COUNT,
+  TOOL_ANIM_BASE_Y_OFFSET_PX,
+  TOOL_ANIM_MAX_BOUNCE_PX,
+  TOOL_ANIM_COLOR_TYPING,
+  TOOL_ANIM_COLOR_READING,
 } from '../../constants.js'
 
 // ── Render functions ────────────────────────────────────────────
@@ -482,6 +489,50 @@ export function renderBubbles(
   }
 }
 
+// ── Tool activity animation ──────────────────────────────────
+
+export function renderToolActivity(
+  ctx: CanvasRenderingContext2D,
+  characters: Character[],
+  offsetX: number,
+  offsetY: number,
+  zoom: number,
+): void {
+  const dotSize = Math.max(2, Math.round(zoom * 1.2))
+  const dotGap = Math.max(4, Math.round(zoom * 2.5))
+
+  for (const ch of characters) {
+    // Only show while actively using a specific tool, not when a bubble is showing
+    if (!ch.isActive || !ch.currentTool || ch.bubbleType || ch.matrixEffect) continue
+    if (ch.state !== CharacterState.TYPE) continue
+
+    const color = isReadingTool(ch.currentTool) ? TOOL_ANIM_COLOR_READING : TOOL_ANIM_COLOR_TYPING
+    const sittingOff = CHARACTER_SITTING_OFFSET_PX
+    const baseX = offsetX + ch.x * zoom
+    const baseY = offsetY + (ch.y + sittingOff - TOOL_ANIM_BASE_Y_OFFSET_PX) * zoom
+
+    ctx.save()
+    ctx.fillStyle = color
+
+    for (let i = 0; i < TOOL_ANIM_DOT_COUNT; i++) {
+      // Each dot is offset by 1/N of the period so they stagger
+      const phase = ((ch.toolAnimTimer / TOOL_ANIM_PERIOD_SEC) + i / TOOL_ANIM_DOT_COUNT) % 1.0
+      // Bounce: sine wave, max upward at phase=0.25
+      const bounce = Math.sin(phase * Math.PI * 2) * TOOL_ANIM_MAX_BOUNCE_PX * zoom
+      // Fade: full alpha at peak, 30% at trough
+      const alpha = 0.3 + 0.7 * ((Math.sin(phase * Math.PI * 2) + 1) / 2)
+
+      const dotX = Math.round(baseX + (i - (TOOL_ANIM_DOT_COUNT - 1) / 2) * dotGap - dotSize / 2)
+      const dotY = Math.round(baseY - bounce - dotSize / 2)
+
+      ctx.globalAlpha = alpha
+      ctx.fillRect(dotX, dotY, dotSize, dotSize)
+    }
+
+    ctx.restore()
+  }
+}
+
 export interface ButtonBounds {
   /** Center X in device pixels */
   cx: number
@@ -548,12 +599,15 @@ export function renderFrame(
   // Use layout dimensions (fallback to tileMap size)
   const cols = layoutCols ?? (tileMap.length > 0 ? tileMap[0].length : 0)
   const rows = layoutRows ?? tileMap.length
+  const exterior = getExteriorMetrics(cols, rows, zoom)
 
-  // Center map in viewport + pan offset (integer device pixels)
-  const mapW = cols * TILE_SIZE * zoom
-  const mapH = rows * TILE_SIZE * zoom
-  const offsetX = Math.floor((canvasWidth - mapW) / 2) + Math.round(panX)
-  const offsetY = Math.floor((canvasHeight - mapH) / 2) + Math.round(panY)
+  // Center expanded world in viewport + pan offset, then place layout inside it.
+  const worldOriginX = Math.floor((canvasWidth - exterior.worldWidthPx) / 2) + Math.round(panX)
+  const worldOriginY = Math.floor((canvasHeight - exterior.worldHeightPx) / 2) + Math.round(panY)
+  const offsetX = worldOriginX + exterior.padLeftPx
+  const offsetY = worldOriginY + exterior.padTopPx
+
+  renderExterior(ctx, worldOriginX, worldOriginY, zoom, cols, rows)
 
   // Draw tiles (floor + wall base color)
   renderTileGrid(ctx, tileMap, offsetX, offsetY, zoom, tileColors, layoutCols)
@@ -578,6 +632,9 @@ export function renderFrame(
 
   // Speech bubbles (always on top of characters)
   renderBubbles(ctx, characters, offsetX, offsetY, zoom)
+
+  // Tool activity animation (dots above active agents using a tool)
+  renderToolActivity(ctx, characters, offsetX, offsetY, zoom)
 
   // Editor overlays
   if (editor) {

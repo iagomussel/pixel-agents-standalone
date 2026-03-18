@@ -79,6 +79,7 @@ export function createCharacter(
     matrixEffectTimer: 0,
     matrixEffectSeeds: [],
     isExiting: false,
+    toolAnimTimer: 0,
   }
 }
 
@@ -91,6 +92,7 @@ export function updateCharacter(
   blockedTiles: Set<string>,
 ): void {
   ch.frameTimer += dt
+  if (ch.isActive) ch.toolAnimTimer += dt
 
   switch (ch.state) {
     case CharacterState.TYPE: {

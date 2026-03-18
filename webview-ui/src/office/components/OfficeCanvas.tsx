@@ -4,6 +4,7 @@ import type { EditorState } from '../editor/editorState.js'
 import type { EditorRenderState, SelectionRenderState, DeleteButtonBounds, RotateButtonBounds } from '../engine/renderer.js'
 import { startGameLoop } from '../engine/gameLoop.js'
 import { renderFrame } from '../engine/renderer.js'
+import { getExteriorMetrics } from '../engine/exterior.js'
 import { TILE_SIZE, EditTool } from '../types.js'
 import { CAMERA_FOLLOW_LERP, CAMERA_FOLLOW_SNAP_THRESHOLD, ZOOM_MIN, ZOOM_MAX, ZOOM_SCROLL_THRESHOLD, PAN_MARGIN_FRACTION } from '../../constants.js'
 import { getCatalogEntry, isRotatable } from '../layout/furnitureCatalog.js'
@@ -48,12 +49,11 @@ export function OfficeCanvas({ officeState, onClick, isEditMode, editorState, on
     const canvas = canvasRef.current
     if (!canvas) return { x: px, y: py }
     const layout = officeState.getLayout()
-    const mapW = layout.cols * TILE_SIZE * zoom
-    const mapH = layout.rows * TILE_SIZE * zoom
+    const exterior = getExteriorMetrics(layout.cols, layout.rows, zoom)
     const marginX = canvas.width * PAN_MARGIN_FRACTION
     const marginY = canvas.height * PAN_MARGIN_FRACTION
-    const maxPanX = (mapW / 2) + canvas.width / 2 - marginX
-    const maxPanY = (mapH / 2) + canvas.height / 2 - marginY
+    const maxPanX = (exterior.worldWidthPx / 2) + canvas.width / 2 - marginX
+    const maxPanY = (exterior.worldHeightPx / 2) + canvas.height / 2 - marginY
     return {
       x: Math.max(-maxPanX, Math.min(maxPanX, px)),
       y: Math.max(-maxPanY, Math.min(maxPanY, py)),
@@ -177,10 +177,9 @@ export function OfficeCanvas({ officeState, onClick, isEditMode, editorState, on
           const followCh = officeState.characters.get(officeState.cameraFollowId)
           if (followCh) {
             const layout = officeState.getLayout()
-            const mapW = layout.cols * TILE_SIZE * zoom
-            const mapH = layout.rows * TILE_SIZE * zoom
-            const targetX = mapW / 2 - followCh.x * zoom
-            const targetY = mapH / 2 - followCh.y * zoom
+            const exterior = getExteriorMetrics(layout.cols, layout.rows, zoom)
+            const targetX = exterior.worldWidthPx / 2 - (exterior.padLeftPx + followCh.x * zoom)
+            const targetY = exterior.worldHeightPx / 2 - (exterior.padTopPx + followCh.y * zoom)
             const dx = targetX - panRef.current.x
             const dy = targetY - panRef.current.y
             if (Math.abs(dx) < CAMERA_FOLLOW_SNAP_THRESHOLD && Math.abs(dy) < CAMERA_FOLLOW_SNAP_THRESHOLD) {
