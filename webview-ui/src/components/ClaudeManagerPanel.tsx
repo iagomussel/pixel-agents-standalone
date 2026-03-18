@@ -135,8 +135,8 @@ const RETRO_BTN: React.CSSProperties = {
 
 const TERM_STYLE: React.CSSProperties = {
   fontFamily: "'FS Pixel Sans', monospace",
-  fontSize: '16px',
-  lineHeight: '1.6',
+  fontSize: '15px',
+  lineHeight: '1.55',
 }
 
 type Tab = 'AGENTS' | 'LOGS' | 'MISSIONS' | 'SYSTEM'
@@ -263,22 +263,26 @@ export function ClaudeManagerPanel({
     : []
 
   const borderStyle = '1px solid #1a2e1a'
-  const bg = '#080e08'
-  const panelBg = '#050b05'
+  const bg = '#08110b'
+  const panelBg = '#050b07'
+  const textPrimary = '#e8f7ea'
+  const textSecondary = '#b1cdb6'
+  const textMuted = '#6f9377'
+  const rowDivider = '1px solid rgba(120, 180, 130, 0.12)'
 
   // Pending tool name for approval dialog
   const pendingTool = selTools.find((t) => t.permissionWait && !t.done)
 
   return (
     <div
-      style={{ position: 'absolute', inset: 0, background: bg, zIndex: 200, display: 'flex', flexDirection: 'column', color: '#99cc99', ...TERM_STYLE }}
+      style={{ position: 'absolute', inset: 0, background: bg, zIndex: 200, display: 'flex', flexDirection: 'column', color: textSecondary, ...TERM_STYLE }}
       onKeyDown={handleKeyDown}
     >
       {/* ── Title bar ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 12px 3px', borderBottom: borderStyle, background: '#030803', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px 7px', borderBottom: borderStyle, background: '#040905', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ color: '#ccffcc', fontSize: '20px', letterSpacing: 2 }}>CLAUDE MANAGER v1.2</span>
-          <span style={{ color: '#2a5a2a', fontSize: '14px', letterSpacing: 1 }}>
+          <span style={{ color: textPrimary, fontSize: '19px', letterSpacing: 1.4 }}>MISSION CONTROL</span>
+          <span style={{ color: textMuted, fontSize: '13px', letterSpacing: 1 }}>
             AGENTS ONLINE: {agents.length}
           </span>
         </div>
@@ -293,7 +297,7 @@ export function ClaudeManagerPanel({
       </div>
 
       {/* ── Tab bar ── */}
-      <div style={{ display: 'flex', borderBottom: borderStyle, background: '#030803', flexShrink: 0, paddingTop: 3 }}>
+      <div style={{ display: 'flex', borderBottom: borderStyle, background: '#040905', flexShrink: 0, paddingTop: 4, paddingInline: 6 }}>
         {(['AGENTS', 'MISSIONS', 'LOGS', 'SYSTEM'] as Tab[]).map((t) => (
           <button key={t} onClick={() => setTab(t)} style={tab === t ? TAB_ACTIVE : TAB_STYLE}>{t}</button>
         ))}
@@ -308,7 +312,7 @@ export function ClaudeManagerPanel({
           {tab === 'AGENTS' && (
             <>
               {/* Column headers */}
-              <div style={{ display: 'grid', gridTemplateColumns: '26px 1fr 86px 88px 1fr', padding: '3px 10px', borderBottom: borderStyle, color: '#2a5a2a', fontSize: '14px', letterSpacing: 1, flexShrink: 0 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '28px 1.2fr 88px 92px 1.2fr', padding: '7px 12px', borderBottom: borderStyle, color: textMuted, fontSize: '12px', letterSpacing: 1.1, flexShrink: 0, textTransform: 'uppercase' }}>
                 <span />
                 <span>AGENT</span>
                 <span>ROLE</span>
@@ -319,7 +323,7 @@ export function ClaudeManagerPanel({
               {/* Agent rows */}
               <div style={{ flex: 1, overflowY: 'auto' }}>
                 {agents.length === 0 && (
-                  <div style={{ padding: '20px 12px', color: '#1a3a1a', fontStyle: 'italic', textAlign: 'center' }}>
+                  <div style={{ padding: '20px 12px', color: textMuted, fontStyle: 'italic', textAlign: 'center' }}>
                     NO AGENTS ONLINE<br />
                     <span style={{ fontSize: '14px' }}>Click &quot;+ Agent&quot; to deploy one</span>
                   </div>
@@ -343,30 +347,30 @@ export function ClaudeManagerPanel({
                       onClick={() => handleRowClick(id)}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '26px 1fr 86px 88px 1fr',
+                        gridTemplateColumns: '28px 1.2fr 88px 92px 1.2fr',
                         alignItems: 'center',
-                        padding: '5px 10px',
-                        borderBottom: '1px solid #0d180d',
-                        background: isSelected ? '#0c1e0c' : hasApproval ? 'rgba(80,50,0,0.25)' : 'transparent',
+                        padding: '8px 12px',
+                        borderBottom: rowDivider,
+                        background: isSelected ? 'rgba(79, 195, 247, 0.12)' : hasApproval ? 'rgba(120,80,0,0.18)' : 'transparent',
                         cursor: 'pointer',
-                        outline: hasApproval ? '1px solid #3a2a00' : undefined,
+                        outline: hasApproval ? '1px solid rgba(255,183,77,0.35)' : undefined,
                       }}
-                      onMouseEnter={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = '#091409' }}
-                      onMouseLeave={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = hasApproval ? 'rgba(80,50,0,0.25)' : 'transparent' }}
+                      onMouseEnter={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.04)' }}
+                      onMouseLeave={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = hasApproval ? 'rgba(120,80,0,0.18)' : 'transparent' }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'center' }}>
                         <MiniAvatar palette={palette} isActive={isActive} />
                       </div>
-                      <span style={{ color: isSelected ? '#ccffcc' : '#779977', fontSize: '16px', letterSpacing: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 4 }} title={name}>
+                      <span style={{ color: isSelected ? textPrimary : textSecondary, fontSize: '15px', letterSpacing: 0.6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 8 }} title={name}>
                         {name.toUpperCase()}
                       </span>
-                      <span style={{ color: '#2a5a2a', fontSize: '14px', letterSpacing: 1 }}>{role}</span>
-                      <span style={{ color: statusColor(displayStatus), fontSize: '14px', letterSpacing: 1 }}>
+                      <span style={{ color: textMuted, fontSize: '13px', letterSpacing: 0.8 }}>{role}</span>
+                      <span style={{ color: statusColor(displayStatus), fontSize: '13px', letterSpacing: 0.8, fontWeight: 700 }}>
                         {displayStatus === 'ACTIVE' && <span className="pixel-agents-pulse" style={{ display: 'inline-block' }}>█ </span>}
                         {displayStatus === 'APPROVAL' && <span className="pixel-agents-pulse" style={{ display: 'inline-block' }}>⚠ </span>}
                         {displayStatus}
                       </span>
-                      <span style={{ color: '#224422', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 4 }} title={activeToolText}>
+                      <span style={{ color: textSecondary, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 4, opacity: 0.9 }} title={activeToolText}>
                         {activeToolText}
                       </span>
                     </div>
@@ -376,7 +380,7 @@ export function ClaudeManagerPanel({
 
               {/* Action bar for selected agent */}
               {selectedId !== null && (
-                <div style={{ borderTop: borderStyle, padding: '4px 10px', display: 'flex', gap: 6, flexShrink: 0, background: panelBg, flexWrap: 'wrap' }}>
+                <div style={{ borderTop: borderStyle, padding: '8px 10px', display: 'flex', gap: 8, flexShrink: 0, background: panelBg, flexWrap: 'wrap' }}>
                   <button
                     onClick={() => onFocusAgent(selectedId)}
                     style={{ ...RETRO_BTN, fontSize: '15px', padding: '3px 10px' }}
@@ -415,16 +419,16 @@ export function ClaudeManagerPanel({
           )}
 
           {tab === 'LOGS' && (
-            <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '8px' }}>
               {allMessages.length === 0 && (
-                <div style={{ padding: '16px', color: '#1a3a1a', fontStyle: 'italic', textAlign: 'center' }}>NO LOG ENTRIES</div>
+                <div style={{ padding: '16px', color: textMuted, fontStyle: 'italic', textAlign: 'center' }}>NO LOG ENTRIES</div>
               )}
               {allMessages.map((m) => {
                 const pfxColor = m.kind === 'permission' ? '#cc8800' : m.kind === 'status' ? '#44aa44' : '#336633'
                 return (
-                  <div key={m.id} style={{ padding: '1px 10px', display: 'flex', gap: 6, opacity: m.done ? 0.45 : 1 }}>
-                    <span style={{ color: pfxColor, flexShrink: 0, fontSize: '13px', whiteSpace: 'nowrap' }}>[{m.agentName.slice(0, 9).toUpperCase()}]</span>
-                    <span style={{ color: '#557755', fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.text}</span>
+                  <div key={m.id} style={{ padding: '8px 10px', display: 'flex', gap: 8, opacity: m.done ? 0.6 : 1, border: rowDivider, background: 'rgba(255,255,255,0.02)', marginBottom: 8 }}>
+                    <span style={{ color: pfxColor, flexShrink: 0, fontSize: '12px', whiteSpace: 'nowrap', letterSpacing: 0.8 }}>[{m.agentName.slice(0, 9).toUpperCase()}]</span>
+                    <span style={{ color: textSecondary, fontSize: '14px', lineHeight: 1.45, wordBreak: 'break-word' }}>{m.text}</span>
                   </div>
                 )
               })}
@@ -432,7 +436,7 @@ export function ClaudeManagerPanel({
           )}
 
           {(tab === 'MISSIONS' || tab === 'SYSTEM') && (
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#1a3a1a', fontStyle: 'italic', fontSize: '15px', flexDirection: 'column', gap: 8 }}>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: textMuted, fontStyle: 'italic', fontSize: '15px', flexDirection: 'column', gap: 8 }}>
               <span style={{ fontSize: '24px' }}>[ {tab} ]</span>
               <span>— coming soon —</span>
             </div>
@@ -443,12 +447,12 @@ export function ClaudeManagerPanel({
         <div style={{ flex: '1 1 42%', display: 'flex', flexDirection: 'column', background: panelBg, overflow: 'hidden' }}>
 
           {/* Terminal header */}
-          <div style={{ padding: '3px 10px', borderBottom: borderStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-            <span style={{ color: '#2a5a2a', fontSize: '13px', letterSpacing: 1 }}>
+          <div style={{ padding: '8px 12px', borderBottom: borderStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, background: 'rgba(255,255,255,0.02)' }}>
+            <span style={{ color: textMuted, fontSize: '12px', letterSpacing: 1.1, textTransform: 'uppercase' }}>
               AGENT TERMINAL
             </span>
             {selectedId !== null && (
-              <span style={{ color: statusColor(getDisplayStatus(selStatus, selCh?.isActive ?? false, selTools)), fontSize: '13px', letterSpacing: 1 }}>
+              <span style={{ color: statusColor(getDisplayStatus(selStatus, selCh?.isActive ?? false, selTools)), fontSize: '12px', letterSpacing: 1.1, textTransform: 'uppercase' }}>
                 {(agentNames[selectedId] || `AGENT #${selectedId}`).toUpperCase()}
               </span>
             )}
@@ -460,21 +464,21 @@ export function ClaudeManagerPanel({
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                 <CommanderAvatar palette={selCh?.palette ?? 0} />
                 <div style={{ flex: 1 }}>
-                  <div style={{ color: '#ffcc44', fontSize: '13px', letterSpacing: 1, marginBottom: 4 }}>⚠ NEEDS APPROVAL</div>
+                  <div style={{ color: '#ffcc44', fontSize: '12px', letterSpacing: 1.1, marginBottom: 6 }}>⚠ NEEDS APPROVAL</div>
                   {/* Speech bubble */}
                   <div style={{
                     background: '#ccffcc',
                     color: '#0a1a0a',
-                    padding: '6px 10px',
-                    fontSize: '15px',
-                    lineHeight: '1.4',
+                    padding: '8px 10px',
+                    fontSize: '14px',
+                    lineHeight: '1.5',
                     position: 'relative',
                     border: '2px solid #3a6a3a',
                   }}>
                     <div style={{ fontWeight: 'bold', marginBottom: 2 }}>
                       {(agentNames[selectedId] || `AGENT #${selectedId}`).toUpperCase()}, REQUESTING:
                     </div>
-                    <div style={{ fontSize: '13px', wordBreak: 'break-all' }}>{pendingTool.status}</div>
+                    <div style={{ fontSize: '13px', lineHeight: 1.45, wordBreak: 'break-word' }}>{pendingTool.status}</div>
                   </div>
                   {/* Buttons */}
                   <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
@@ -500,26 +504,26 @@ export function ClaudeManagerPanel({
           )}
 
           {/* Message log */}
-          <div ref={logRef} style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+          <div ref={logRef} style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
             {selectedId !== null && (objective || latestReply) && (
-              <div style={{ margin: '8px 10px 10px', border: borderStyle, background: '#071107', padding: '8px 10px' }}>
-                <div style={{ color: '#2a5a2a', fontSize: '12px', letterSpacing: 1, marginBottom: 6 }}>CONTEXT SNAPSHOT</div>
+              <div style={{ marginBottom: 10, border: borderStyle, background: 'rgba(255,255,255,0.03)', padding: '10px 12px' }}>
+                <div style={{ color: textMuted, fontSize: '11px', letterSpacing: 1.1, marginBottom: 8 }}>CONTEXT SNAPSHOT</div>
                 {objective && (
                   <div style={{ marginBottom: latestReply ? 8 : 0 }}>
-                    <span style={{ color: '#88bb88', fontSize: '12px' }}>OBJECTIVE: </span>
-                    <span style={{ color: '#779977', fontSize: '13px' }}>{objective}</span>
+                    <span style={{ color: '#9fd8a8', fontSize: '11px' }}>OBJECTIVE: </span>
+                    <span style={{ color: textPrimary, fontSize: '14px', lineHeight: 1.45 }}>{objective}</span>
                   </div>
                 )}
                 {latestReply && (
                   <div>
-                    <span style={{ color: '#88bb88', fontSize: '12px' }}>LAST REPLY: </span>
-                    <span style={{ color: '#779977', fontSize: '13px' }}>{latestReply}</span>
+                    <span style={{ color: '#9fd8a8', fontSize: '11px' }}>LAST REPLY: </span>
+                    <span style={{ color: textPrimary, fontSize: '14px', lineHeight: 1.45 }}>{latestReply}</span>
                   </div>
                 )}
               </div>
             )}
             {termMessages.length === 0 && (
-              <div style={{ padding: '12px 10px', color: '#1a3a1a', fontStyle: 'italic' }}>
+              <div style={{ padding: '12px 4px', color: textMuted, fontStyle: 'italic' }}>
                 {selectedId === null ? '> Select an agent from the table.' : selectedConversation.length > 0 ? '> No new ops events. Context loaded above.' : '> No activity yet.'}
               </div>
             )}
@@ -541,9 +545,9 @@ export function ClaudeManagerPanel({
                 prefixColor = '#44aa44'
               }
               return (
-                <div key={m.id} style={{ padding: '1px 10px', opacity: m.done ? 0.5 : 1 }}>
-                  <span style={{ color: prefixColor, fontSize: '14px' }}>{prefix} </span>
-                  <span style={{ color: '#668866', fontSize: '14px' }}>{m.text}</span>
+                <div key={m.id} style={{ padding: '7px 10px', opacity: m.done ? 0.6 : 1, border: rowDivider, background: 'rgba(255,255,255,0.02)', marginBottom: 8 }}>
+                  <div style={{ color: prefixColor, fontSize: '12px', letterSpacing: 0.8, marginBottom: 4 }}>{prefix}</div>
+                  <div style={{ color: textPrimary, fontSize: '14px', lineHeight: 1.5 }}>{m.text}</div>
                 </div>
               )
             })}
@@ -557,8 +561,8 @@ export function ClaudeManagerPanel({
 
           {/* Message input — shown when agent is waiting */}
           {isWaiting && !needsApproval && selectedId !== null && (
-            <div style={{ borderTop: borderStyle, padding: '6px 10px', background: '#0a180a', flexShrink: 0 }}>
-              <div style={{ color: '#4a8a4a', fontSize: '13px', marginBottom: 4, letterSpacing: 1 }}>
+            <div style={{ borderTop: borderStyle, padding: '8px 10px', background: '#0a180a', flexShrink: 0 }}>
+              <div style={{ color: '#8db996', fontSize: '12px', marginBottom: 6, letterSpacing: 1.1 }}>
                 AGENT WAITING — SEND REPLY:
               </div>
               <form onSubmit={handleCmdSubmit} style={{ display: 'flex', gap: 6 }}>
@@ -566,7 +570,7 @@ export function ClaudeManagerPanel({
                   ref={inputRef}
                   value={cmd}
                   onChange={(e) => setCmd(e.target.value)}
-                  style={{ flex: 1, background: '#060c06', border: '1px solid #2a5a2a', outline: 'none', color: '#ccffcc', fontSize: '15px', fontFamily: 'inherit', padding: '4px 8px', caretColor: '#39ff14' }}
+                  style={{ flex: 1, background: '#060c06', border: '1px solid #2f6d3f', outline: 'none', color: textPrimary, fontSize: '15px', fontFamily: 'inherit', padding: '8px 10px', caretColor: '#39ff14' }}
                   placeholder="Type your reply..."
                   autoComplete="off"
                   spellCheck={false}
@@ -586,16 +590,16 @@ export function ClaudeManagerPanel({
       {/* ── Command bar ── */}
       <form
         onSubmit={handleCmdSubmit}
-        style={{ borderTop: borderStyle, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 6, background: panelBg, flexShrink: 0 }}
+        style={{ borderTop: borderStyle, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 6, background: panelBg, flexShrink: 0 }}
       >
-        <span style={{ color: '#2a5a2a', fontSize: '15px', whiteSpace: 'nowrap' }}>
+        <span style={{ color: textMuted, fontSize: '13px', whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: 0.8 }}>
           {isWaiting && !needsApproval ? `> msg #${selectedId}:` : needsApproval ? `> [Y]es / [N]o:` : '> cmd:'}
         </span>
         <input
           value={isWaiting && !needsApproval ? '' : cmd}
           onChange={(e) => { if (!isWaiting || needsApproval) setCmd(e.target.value) }}
           readOnly={isWaiting && !needsApproval}
-          style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: isWaiting && !needsApproval ? '#334' : '#aaccaa', fontSize: '15px', fontFamily: 'inherit', caretColor: '#39ff14', opacity: isWaiting && !needsApproval ? 0.3 : 1 }}
+          style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: isWaiting && !needsApproval ? '#334' : textPrimary, fontSize: '14px', fontFamily: 'inherit', caretColor: '#39ff14', opacity: isWaiting && !needsApproval ? 0.3 : 1 }}
           placeholder={needsApproval ? 'Y / N' : isWaiting ? '(use reply box above)' : 'focus <id> | close <id> | approve | deny'}
           autoComplete="off"
           spellCheck={false}

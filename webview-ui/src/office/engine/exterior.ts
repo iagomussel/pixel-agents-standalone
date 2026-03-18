@@ -70,7 +70,7 @@ const CRACK_COLOR = 'rgba(0, 0, 0, 0.1)'
 const CAR_RED = '#cc0000'
 const CAR_BLUE = '#0066cc'
 const CAR_GREEN = '#339933'
-const CAR_GRAY = '#666b73'
+const CAR_YELLOW = '#d4a318'
 const CAR_GLASS = '#bbddff'
 
 // Asset paths (local - use absolute from web root)
@@ -758,13 +758,13 @@ export function renderExterior(
   // Lanes and Directions
   // Vertical Road: Left Lane (col + 0.8) goes UP, Right Lane (col + 3.2) goes DOWN
   drawCar(ctx, worldOriginX, worldOriginY, zoom, rightRoad.col + 0.8, buildingRow - 2, CAR_RED, true, time, false)
-  drawCar(ctx, worldOriginX, worldOriginY, zoom, rightRoad.col + 3.2, buildingRow + 4, CAR_GRAY, true, time, true)
+  drawCar(ctx, worldOriginX, worldOriginY, zoom, rightRoad.col + 3.2, buildingRow + 4, CAR_YELLOW, true, time, true)
   drawCar(ctx, worldOriginX, worldOriginY, zoom, rightRoad.col + 0.8, buildingRow + 15, CAR_BLUE, true, time, false)
 
   // Horizontal Road: Top Lane (row + 0.8) goes RIGHT, Bottom Lane (row + 3.2) goes LEFT
   drawCar(ctx, worldOriginX, worldOriginY, zoom, buildingCol + 2, bottomRoad.row + 0.8, CAR_GREEN, false, time, false)
   drawCar(ctx, worldOriginX, worldOriginY, zoom, buildingCol + 12, bottomRoad.row + 3.2, CAR_RED, false, time, true)
-  drawCar(ctx, worldOriginX, worldOriginY, zoom, buildingCol + 20, bottomRoad.row + 0.8, CAR_GRAY, false, time, false)
+  drawCar(ctx, worldOriginX, worldOriginY, zoom, buildingCol + 20, bottomRoad.row + 0.8, CAR_YELLOW, false, time, false)
 
   drawHydrant(ctx, worldOriginX, worldOriginY, zoom, rightRoad.col - 2, buildingRow + 13)
   drawManhole(ctx, worldOriginX, worldOriginY, zoom, rightRoad.col + 2, buildingRow + 5)

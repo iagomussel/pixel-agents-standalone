@@ -27,4 +27,6 @@ dist-ssr
 */assets/*
 !*/assets/characters/
 !*/assets/default-layout.json
+!*/assets/exterior/
+!*/assets/exterior/cars.png
 !*/assets/walls.png

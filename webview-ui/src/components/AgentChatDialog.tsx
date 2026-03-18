@@ -26,6 +26,10 @@ type PanelTab = 'context' | 'events'
 
 const PANEL_WIDTH = 430
 
+function getDefaultTab(isActive: boolean, conversationLength: number): PanelTab {
+  return !isActive && conversationLength > 0 ? 'context' : 'events'
+}
+
 function truncateText(text: string, maxLength: number): string {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}…` : text
 }
@@ -110,11 +114,12 @@ export function AgentChatDialog({
 }: AgentChatDialogProps) {
   const contentEndRef = useRef<HTMLDivElement>(null)
   const copyResetTimeoutRef = useRef<number | null>(null)
+  const previousIdRef = useRef(id)
   const [isRenaming, setIsRenaming] = useState(false)
   const [editName, setEditName] = useState(displayName)
   const [draft, setDraft] = useState('')
   const [copied, setCopied] = useState(false)
-  const [tab, setTab] = useState<PanelTab>(isActive ? 'events' : 'context')
+  const [tab, setTab] = useState<PanelTab>(() => getDefaultTab(isActive, conversation.length))
   const inputRef = useRef<HTMLInputElement>(null)
   const { objective, latestReply } = getContextSnapshot(conversation)
 
@@ -131,7 +136,9 @@ export function AgentChatDialog({
   }, [isRenaming, displayName])
 
   useEffect(() => {
-    setTab(!isActive && conversation.length > 0 ? 'context' : 'events')
+    if (previousIdRef.current === id) return
+    previousIdRef.current = id
+    setTab(getDefaultTab(isActive, conversation.length))
   }, [id, isActive, conversation.length])
 
   useEffect(() => {
@@ -202,7 +209,7 @@ export function AgentChatDialog({
   const shortDir = workingDir
     ? workingDir.replace(/\\/g, '/').split('/').filter(Boolean).slice(-3).join('/')
     : null
-  const defaultTabLabel = !isActive && conversation.length > 0 ? 'Context' : 'Ops'
+  const defaultTabLabel = getDefaultTab(isActive, conversation.length) === 'context' ? 'Context' : 'Ops'
 
   return (
     <div
