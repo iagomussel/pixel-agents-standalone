@@ -70,6 +70,8 @@ function buildResumeCommand(agent: TrackedAgent): string | null {
       return `codex resume ${sessionId}`;
     case "opencode":
       return `opencode run --session ${sessionId}`;
+    case "gemini":
+      return `gemini run --session ${sessionId}`;
     default:
       return null;
   }
@@ -99,6 +101,9 @@ function sendPromptToAgent(agent: TrackedAgent, prompt: string): boolean {
         return true;
       case "opencode":
         spawnDetached("opencode", ["run", "--session", agent.sessionId, "--format", "json", prompt], cwd);
+        return true;
+      case "gemini":
+        spawnDetached("gemini", ["run", "--session", agent.sessionId, prompt], cwd);
         return true;
       default:
         console.warn(`[Server] Prompt dispatch not implemented for source: ${agent.source}`);
@@ -131,6 +136,9 @@ function compactContext(agent: TrackedAgent): boolean {
       case "opencode":
         // OpenCode has a 'compact' command
         spawnDetached("opencode", ["compact", "--session", agent.sessionId], cwd);
+        return true;
+      case "gemini":
+        spawnDetached("gemini", ["compact", "--session", agent.sessionId], cwd);
         return true;
       default:
         return false;
@@ -494,6 +502,9 @@ wss.on("connection", (ws) => {
             break;
           case "opencode":
             spawnDetached("opencode", ["run", "--format", "json", "Hello!"], folderPath);
+            break;
+          case "gemini":
+            spawnDetached("gemini", ["run", "Hello!"], folderPath);
             break;
           default:
             console.warn(`[Server] Unknown provider: ${String(msg.provider)}`);

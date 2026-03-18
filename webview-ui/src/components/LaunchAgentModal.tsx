@@ -12,6 +12,7 @@ interface LaunchAgentModalProps {
 const PROVIDERS: Array<{ id: AgentSource; name: string }> = [
   { id: 'claude', name: 'Claude' },
   { id: 'codex', name: 'Codex' },
+  { id: 'gemini', name: 'Gemini' },
   { id: 'opencode', name: 'OpenCode' },
 ]
 

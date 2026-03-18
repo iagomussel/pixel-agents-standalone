@@ -5,15 +5,22 @@ import { homedir } from "os";
 import { EventEmitter } from "events";
 import type { AgentSource } from "./types.js";
 
-const CLAUDE_PROJECTS_DIR = join(homedir(), ".claude", "projects");
-const CODEX_SESSIONS_DIR = join(homedir(), ".codex", "sessions");
+const CLAUDE_PROJECTS_DIR = joinUnresolved(homedir(), ".claude", "projects");
+const CODEX_SESSIONS_DIR = joinUnresolved(homedir(), ".codex", "sessions");
+const GEMINI_SESSIONS_DIR = joinUnresolved(homedir(), ".gemini", "sessions");
 const INITIAL_SCAN_THRESHOLD_MS = 86_400_000; // 24 hours — include sessions from today
 const POLL_INTERVAL_MS = 1000;
 const WATCH_DEPTH = 5;
 
+// Workaround for process.env.HOME vs homedir() inconsistencies in some setups
+function joinUnresolved(base: string, ...parts: string[]): string {
+  return join(base, ...parts);
+}
+
 const WATCH_ROOTS: Array<{ path: string; source: AgentSource; maxDepth: number }> = [
   { path: CLAUDE_PROJECTS_DIR, source: "claude", maxDepth: 2 },
   { path: CODEX_SESSIONS_DIR, source: "codex", maxDepth: 3 },
+  { path: GEMINI_SESSIONS_DIR, source: "gemini", maxDepth: 2 },
 ];
 
 export interface WatchedFile {
@@ -66,9 +73,9 @@ export class JsonlWatcher extends EventEmitter {
     const source = this.getSource(filePath);
     if (!source) return;
 
-    const metadata = source === "codex"
-      ? this.readCodexMetadata(filePath)
-      : this.readClaudeMetadata(filePath);
+    const metadata = (source === "claude" || source === "gemini")
+      ? this.readClaudeMetadata(filePath)
+      : this.readCodexMetadata(filePath);
 
     const file: WatchedFile = {
       path: filePath,

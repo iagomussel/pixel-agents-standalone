@@ -74,17 +74,14 @@ const CAR_YELLOW = '#d4a318'
 const CAR_GLASS = '#bbddff'
 
 // Asset paths (local - use absolute from web root)
-const TREE_OAK_PATH = '/assets/exterior/oak.png'
-const TREE_PINE_PATH = '/assets/exterior/pine.png'
+const TREES_PATH = '/assets/exterior/Trees.png'
 const CARS_PATH = '/assets/exterior/cars.png'
 
 const assets = {
-  oak: new Image(),
-  pine: new Image(),
+  trees: new Image(),
   cars: new Image(),
 }
-assets.oak.src = TREE_OAK_PATH
-assets.pine.src = TREE_PINE_PATH
+assets.trees.src = TREES_PATH
 assets.cars.src = CARS_PATH
 
 function deterministicUnit(seed: number): number {
@@ -239,23 +236,42 @@ function drawTree(
   col: number,
   row: number,
   variant = 0,
-  time = 0,
+  _time = 0,
 ): void {
   const s = TILE_SIZE * zoom
   const x = worldOriginX + col * s
   const y = worldOriginY + row * s
-
-  const sway = Math.sin(time / 800 + (col * 1.3) + (row * 0.7)) * 1.5 * zoom
-  const windX = sway
 
   ctx.fillStyle = TREE_SHADOW
   ctx.beginPath()
   ctx.ellipse(x + s * 0.5, y + s * 0.85, s * 0.45, s * 0.18, 0, 0, Math.PI * 2)
   ctx.fill()
 
-  const img = variant === 1 ? assets.pine : assets.oak
+  const img = assets.trees
   if (img.complete && img.naturalWidth > 0) {
-    ctx.drawImage(img, x + windX - s * 0.1, y - s * 0.3, s * 1.2, s * 1.2)
+    // Exact coordinates for the 5 main trees detected in Trees.png
+    const treeData = [
+      { sx: 287, sy: 0,   sw: 66, sh: 128 },
+      { sx: 94,  sy: 21,  sw: 85, sh: 107 },
+      { sx: 194, sy: 24,  sw: 75, sh: 104 },
+      { sx: 375, sy: 29,  sw: 66, sh: 99  },
+      { sx: 1,   sy: 40,  sw: 70, sh: 88  },
+    ]
+    
+    // Pick one of the 5 trees
+    const treeIdx = (variant + Math.abs(col * 3 + row * 5)) % treeData.length
+    const { sx, sy, sw, sh } = treeData[treeIdx]
+
+    // Scale while preserving aspect ratio, centered on the tile
+    const scale = 1.2
+    const drawW = s * (sw / 32) * scale
+    const drawH = s * (sh / 32) * scale
+    const dx = x + s * 0.5 - drawW / 2
+    const dy = y + s * 0.85 - drawH
+    
+    ctx.imageSmoothingEnabled = true
+    ctx.drawImage(img, sx, sy, sw, sh, dx, dy, drawW, drawH)
+    ctx.imageSmoothingEnabled = false
   } else {
     const trunkW = Math.max(3, Math.round(s * (variant === 1 ? 0.25 : 0.2)))
     const trunkH = Math.max(4, Math.round(s * (variant === 1 ? 0.4 : 0.35)))
