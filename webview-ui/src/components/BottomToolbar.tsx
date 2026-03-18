@@ -12,6 +12,8 @@ interface BottomToolbarProps {
   isDebugMode: boolean
   onToggleDebugMode: () => void
   workspaceFolders: WorkspaceFolder[]
+  isLogOpen: boolean
+  onToggleLog: () => void
 }
 
 const panelStyle: React.CSSProperties = {
@@ -53,6 +55,8 @@ export function BottomToolbar({
   isDebugMode,
   onToggleDebugMode,
   workspaceFolders,
+  isLogOpen,
+  onToggleLog,
 }: BottomToolbarProps) {
   const [hovered, setHovered] = useState<string | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -209,6 +213,34 @@ export function BottomToolbar({
         title="Keyboard shortcuts (?)"
       >
         ?
+      </button>
+      <button
+        onClick={onToggleLog}
+        onMouseEnter={() => setHovered('log')}
+        onMouseLeave={() => setHovered(null)}
+        style={
+          isLogOpen
+            ? { ...btnActive }
+            : { ...btnBase, background: hovered === 'log' ? 'var(--pixel-btn-hover-bg)' : btnBase.background }
+        }
+        title="System log"
+      >
+        Log
+      </button>
+      <div style={{ width: 1, height: 20, background: 'var(--pixel-border)', margin: '0 4px' }} />
+      <button
+        style={{ ...btnBase, color: '#fbbf24', opacity: 0.8 }}
+        title="Pause all agents (coming soon)"
+        onClick={() => console.log('[Pixel Agents] Pause all - coming soon')}
+      >
+        ⏸ Pause All
+      </button>
+      <button
+        style={{ ...btnBase, color: '#4ade80', opacity: 0.8 }}
+        title="Resume all agents (coming soon)"
+        onClick={() => console.log('[Pixel Agents] Resume all - coming soon')}
+      >
+        ▶ Resume All
       </button>
       {!isConnected && (
         <div

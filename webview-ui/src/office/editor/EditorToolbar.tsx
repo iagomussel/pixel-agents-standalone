@@ -200,6 +200,47 @@ export function EditorToolbar({
     setPendingPng(null)
   }, [pendingPng, importMeta])
 
+  // AI generation state
+  const [showGenerate, setShowGenerate] = useState(false)
+  const [generatePrompt, setGeneratePrompt] = useState('')
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [generateError, setGenerateError] = useState<string | null>(null)
+
+  const handleGenerate = useCallback(async () => {
+    if (!generatePrompt.trim() || isGenerating) return
+    setIsGenerating(true)
+    setGenerateError(null)
+    try {
+      const res = await fetch('/api/generate-sprite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: generatePrompt.trim() }),
+      })
+      const data = await res.json() as { imageBase64?: string; mimeType?: string; error?: string }
+      if (!res.ok || !data.imageBase64) throw new Error(data.error ?? 'No image returned')
+      const dataUrl = `data:${data.mimeType ?? 'image/png'};base64,${data.imageBase64}`
+      const img = new Image()
+      img.onload = () => {
+        const name = generatePrompt.trim().slice(0, 30).replace(/\s+/g, '-')
+        setPendingPng({ img, filename: name })
+        setImportMeta({
+          label: name,
+          category: 'decor',
+          footprintW: Math.max(1, Math.ceil(img.width / 16)),
+          footprintH: Math.max(1, Math.ceil(img.height / 16)),
+          isDesk: false,
+        })
+        setShowGenerate(false)
+        setGeneratePrompt('')
+      }
+      img.src = dataUrl
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : 'Generation failed')
+    } finally {
+      setIsGenerating(false)
+    }
+  }, [generatePrompt, isGenerating])
+
   // Build dynamic catalog from loaded assets
   useEffect(() => {
     if (loadedAssets) {
@@ -261,6 +302,47 @@ export function EditorToolbar({
       style={{ display: 'none' }}
       onChange={handleFileSelect}
     />
+
+    {/* AI Generate panel */}
+    {showGenerate && (
+      <div style={{
+        position: 'absolute',
+        bottom: 68,
+        left: 10,
+        zIndex: 60,
+        background: '#1e1e2e',
+        border: '2px solid #7a5cff',
+        padding: '8px 10px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        boxShadow: '2px 2px 0px #0a0a14',
+        minWidth: 260,
+      }}>
+        <span style={{ fontSize: '20px', color: '#ccc' }}>✨ Generate sprite with AI</span>
+        <textarea
+          value={generatePrompt}
+          onChange={(e) => setGeneratePrompt(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleGenerate() } }}
+          placeholder="e.g. plant pot, coffee machine, bookshelf..."
+          rows={2}
+          style={{ background: '#181828', color: '#eee', border: '1px solid #4a4a6a', fontSize: '18px', padding: '4px 6px', resize: 'none', fontFamily: 'inherit' }}
+        />
+        {generateError && <span style={{ fontSize: '18px', color: '#ff6b6b' }}>{generateError}</span>}
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button
+            style={{ ...btnStyle, flex: 1, background: isGenerating ? 'rgba(122,92,255,0.15)' : 'rgba(122,92,255,0.3)', border: '2px solid #7a5cff', opacity: isGenerating ? 0.7 : 1 }}
+            onClick={() => void handleGenerate()}
+            disabled={isGenerating || !generatePrompt.trim()}
+          >
+            {isGenerating ? 'Generating…' : 'Generate'}
+          </button>
+          <button style={{ ...btnStyle, flex: 1 }} onClick={() => { setShowGenerate(false); setGenerateError(null) }}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    )}
 
     {/* PNG import config dialog */}
     {pendingPng && (
@@ -489,6 +571,13 @@ export function EditorToolbar({
               title="Import PNG sprite as furniture"
             >
               Import
+            </button>
+            <button
+              style={showGenerate ? { ...btnStyle, background: 'rgba(122,92,255,0.25)', border: '2px solid #7a5cff', color: '#fff' } : btnStyle}
+              onClick={() => { setShowGenerate((v) => !v); setGenerateError(null) }}
+              title="Generate sprite with Gemini AI"
+            >
+              ✨ AI
             </button>
           </div>
           {/* Furniture items — single-row horizontal carousel at 2x */}

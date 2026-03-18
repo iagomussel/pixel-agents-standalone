@@ -15,6 +15,16 @@ const waitingTimers = new Map<number, ReturnType<typeof setTimeout>>();
 const permissionTimers = new Map<number, ReturnType<typeof setTimeout>>();
 const idleTimeoutTimers = new Map<number, ReturnType<typeof setTimeout>>();
 
+function extractWorkingDir(toolName: string, input: Record<string, unknown>): string | null {
+  const filePath =
+    (toolName === 'Read' || toolName === 'Write' || toolName === 'Edit') ? input.file_path as string | undefined :
+    (toolName === 'Glob') ? input.path as string | undefined :
+    (toolName === 'Grep') ? input.path as string | undefined :
+    null;
+  if (!filePath || typeof filePath !== 'string') return null;
+  return path.dirname(filePath);
+}
+
 function formatToolStatus(toolName: string, input: Record<string, unknown>): string {
   const base = (p: unknown) => (typeof p === "string" ? path.basename(p) : "");
   switch (toolName) {
@@ -52,6 +62,61 @@ function formatToolStatus(toolName: string, input: Record<string, unknown>): str
     default:
       return `Using ${toolName}`;
   }
+}
+
+function formatCodexToolStatus(toolName: string, input: Record<string, unknown>): string {
+  switch (toolName) {
+    case "exec_command": {
+      const cmd = (input.cmd as string) || "";
+      return `Running: ${cmd.length > BASH_COMMAND_DISPLAY_MAX_LENGTH ? `${cmd.slice(0, BASH_COMMAND_DISPLAY_MAX_LENGTH)}\u2026` : cmd}`;
+    }
+    case "write_stdin":
+      return "Running terminal input";
+    case "apply_patch":
+      return "Editing code";
+    case "update_plan":
+      return "Planning";
+    case "parallel": {
+      const toolUses = Array.isArray(input.tool_uses) ? input.tool_uses.length : 0;
+      return toolUses > 0 ? `Running ${toolUses} tools in parallel` : "Running parallel tools";
+    }
+    default:
+      return `Using ${toolName}`;
+  }
+}
+
+function extractCodexWorkingDir(
+  toolName: string,
+  input: Record<string, unknown>,
+  agent: TrackedAgent,
+): string | null {
+  if (toolName === "exec_command" && typeof input.workdir === "string" && input.workdir) {
+    return input.workdir;
+  }
+  return agent.currentWorkingDir;
+}
+
+function markAgentActive(
+  agent: TrackedAgent,
+  emit: (msg: ServerMessage) => void,
+  activity: TrackedAgent["activity"],
+): void {
+  cancelTimer(agent.id, waitingTimers);
+  agent.isWaiting = false;
+  agent.activity = activity;
+  agent.lastActivityTime = Date.now();
+  emit({ type: "agentStatus", id: agent.id, status: "active" });
+}
+
+function setAgentWorkingDir(
+  agent: TrackedAgent,
+  dir: string | null,
+  emit: (msg: ServerMessage) => void,
+): void {
+  if (!dir || dir === "." || dir === agent.currentWorkingDir) return;
+  agent.currentWorkingDir = dir;
+  agent.projectDir = dir;
+  emit({ type: "agentWorkingDir", id: agent.id, dir });
 }
 
 function cancelTimer(agentId: number, timers: Map<number, ReturnType<typeof setTimeout>>): void {
@@ -153,6 +218,11 @@ export function processTranscriptLine(
     return;
   }
 
+  if (agent.source === "codex") {
+    processCodexTranscriptRecord(record, agent, emit);
+    return;
+  }
+
   const type = record.type as string;
 
   if (type === "assistant") {
@@ -180,10 +250,8 @@ function handleAssistantMessage(
   const hasToolUse = content.some((b) => b.type === "tool_use");
 
   if (hasToolUse) {
-    cancelTimer(agent.id, waitingTimers);
-    agent.isWaiting = false;
+    markAgentActive(agent, emit, "typing");
     agent.hadToolsInTurn = true;
-    emit({ type: "agentStatus", id: agent.id, status: "active" });
 
     let hasNonExemptTool = false;
     for (const block of content) {
@@ -205,6 +273,9 @@ function handleAssistantMessage(
         }
 
         emit({ type: "agentToolStart", id: agent.id, toolId, status });
+
+        const dir = extractWorkingDir(toolName, input);
+        setAgentWorkingDir(agent, dir, emit);
       }
     }
     if (hasNonExemptTool) {
@@ -215,6 +286,154 @@ function handleAssistantMessage(
   } else if (content.some((b) => b.type === "text") && !agent.hadToolsInTurn) {
     // Text-only response — use silence-based idle detection
     startWaitingTimer(agent, emit);
+  }
+}
+
+function processCodexTranscriptRecord(
+  record: Record<string, unknown>,
+  agent: TrackedAgent,
+  emit: (msg: ServerMessage) => void,
+): void {
+  const type = record.type as string;
+
+  if (type === "session_meta") {
+    const payload = (record.payload as Record<string, unknown> | undefined) ?? {};
+    const cwd = typeof payload.cwd === "string" ? payload.cwd : null;
+    if (cwd) {
+      agent.projectDir = cwd;
+      agent.projectName = path.basename(cwd) || agent.projectName;
+    }
+    setAgentWorkingDir(agent, cwd, emit);
+    return;
+  }
+
+  if (type === "turn_context") {
+    const payload = (record.payload as Record<string, unknown> | undefined) ?? {};
+    const cwd = typeof payload.cwd === "string" ? payload.cwd : null;
+    setAgentWorkingDir(agent, cwd, emit);
+    return;
+  }
+
+  if (type === "event_msg") {
+    handleCodexEventMessage(record, agent, emit);
+    return;
+  }
+
+  if (type === "response_item") {
+    handleCodexResponseItem(record, agent, emit);
+  }
+}
+
+function handleCodexEventMessage(
+  record: Record<string, unknown>,
+  agent: TrackedAgent,
+  emit: (msg: ServerMessage) => void,
+): void {
+  const payload = (record.payload as Record<string, unknown> | undefined) ?? {};
+  const payloadType = payload.type as string | undefined;
+
+  if (payloadType === "user_message") {
+    cancelTimer(agent.id, waitingTimers);
+    cancelTimer(agent.id, idleTimeoutTimers);
+    clearAgentActivity(agent, emit);
+    agent.hadToolsInTurn = false;
+    return;
+  }
+
+  if (payloadType === "agent_message" || payloadType === "agent_reasoning") {
+    markAgentActive(agent, emit, "typing");
+    startIdleTimeout(agent, emit);
+    return;
+  }
+
+  if (payloadType === "token_count" && agent.activeTools.size === 0) {
+    cancelTimer(agent.id, waitingTimers);
+    cancelTimer(agent.id, permissionTimers);
+    cancelTimer(agent.id, idleTimeoutTimers);
+    agent.isWaiting = true;
+    agent.permissionSent = false;
+    agent.hadToolsInTurn = false;
+    agent.activity = "waiting";
+    emit({ type: "agentStatus", id: agent.id, status: "waiting" });
+  }
+}
+
+function handleCodexResponseItem(
+  record: Record<string, unknown>,
+  agent: TrackedAgent,
+  emit: (msg: ServerMessage) => void,
+): void {
+  const payload = (record.payload as Record<string, unknown> | undefined) ?? {};
+  const payloadType = payload.type as string | undefined;
+
+  if (payloadType === "function_call") {
+    const toolId = typeof payload.call_id === "string" ? payload.call_id : null;
+    const toolName = typeof payload.name === "string" ? payload.name : "";
+    if (!toolId || !toolName) return;
+
+    let input: Record<string, unknown> = {};
+    if (typeof payload.arguments === "string") {
+      try {
+        const parsed = JSON.parse(payload.arguments) as unknown;
+        if (parsed && typeof parsed === "object") {
+          input = parsed as Record<string, unknown>;
+        }
+      } catch {
+        input = {};
+      }
+    }
+
+    const status = formatCodexToolStatus(toolName, input);
+    agent.activeTools.set(toolId, { toolId, toolName, status });
+    agent.activeToolNames.set(toolId, toolName);
+    agent.hadToolsInTurn = true;
+
+    const activity = toolName === "apply_patch" ? "typing" : toolName === "exec_command" ? "reading" : "typing";
+    markAgentActive(agent, emit, activity);
+    emit({ type: "agentToolStart", id: agent.id, toolId, status });
+
+    const dir = extractCodexWorkingDir(toolName, input, agent);
+    setAgentWorkingDir(agent, dir, emit);
+    startIdleTimeout(agent, emit);
+    return;
+  }
+
+  if (payloadType === "function_call_output") {
+    const toolId = typeof payload.call_id === "string" ? payload.call_id : null;
+    if (!toolId) return;
+
+    agent.activeTools.delete(toolId);
+    agent.activeToolNames.delete(toolId);
+
+    setTimeout(() => {
+      emit({ type: "agentToolDone", id: agent.id, toolId });
+    }, TOOL_DONE_DELAY_MS);
+
+    if (agent.activeTools.size === 0) {
+      agent.hadToolsInTurn = false;
+    }
+    return;
+  }
+
+  if (payloadType === "message") {
+    const role = payload.role as string | undefined;
+    if (role === "user") {
+      cancelTimer(agent.id, waitingTimers);
+      cancelTimer(agent.id, idleTimeoutTimers);
+      clearAgentActivity(agent, emit);
+      agent.hadToolsInTurn = false;
+      return;
+    }
+    if (role === "assistant") {
+      markAgentActive(agent, emit, "typing");
+      startIdleTimeout(agent, emit);
+      return;
+    }
+  }
+
+  if (payloadType === "reasoning") {
+    markAgentActive(agent, emit, "typing");
+    startIdleTimeout(agent, emit);
   }
 }
 

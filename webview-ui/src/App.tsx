@@ -13,7 +13,8 @@ import { useEditorActions } from './hooks/useEditorActions.js'
 import { useEditorKeyboard } from './hooks/useEditorKeyboard.js'
 import { ZoomControls } from './components/ZoomControls.js'
 import { BottomToolbar } from './components/BottomToolbar.js'
-import { DebugView } from './components/DebugView.js'
+import { ClaudeManagerPanel } from './components/ClaudeManagerPanel.js'
+import { SystemLogPanel } from './components/SystemLogPanel.js'
 
 // Game state lives outside React — updated imperatively by message handlers
 const officeStateRef = { current: null as OfficeState | null }
@@ -121,11 +122,13 @@ function App() {
 
   const isEditDirty = useCallback(() => editor.isEditMode && editor.isDirty, [editor.isEditMode, editor.isDirty])
 
-  const { agents, selectedAgent, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets, workspaceFolders, agentMessages, agentNames, updateAgentName } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty)
+  const { agents, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets, workspaceFolders, agentMessages, agentNames, agentSources, updateAgentName, agentWorkingDirs, sendAgentMessage, handlePermissionAction } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty)
 
   const [isDebugMode, setIsDebugMode] = useState(false)
+  const [isLogOpen, setIsLogOpen] = useState(false)
 
   const handleToggleDebugMode = useCallback(() => setIsDebugMode((prev) => !prev), [])
+  const handleToggleLog = useCallback(() => setIsLogOpen((v) => !v), [])
 
   const handleSelectAgent = useCallback((id: number) => {
     vscode.postMessage({ type: 'focusAgent', id })
@@ -191,6 +194,29 @@ function App() {
           50% { opacity: 0.3; }
         }
         .pixel-agents-pulse { animation: pixel-agents-pulse ${PULSE_ANIMATION_DURATION_SEC}s ease-in-out infinite; }
+
+        @keyframes pixel-agents-glow {
+          0%, 100% { box-shadow: 0 0 4px var(--pixel-accent), 0 0 8px var(--pixel-accent); }
+          50% { box-shadow: 0 0 12px var(--pixel-accent), 0 0 24px var(--pixel-accent); }
+        }
+        .pixel-agents-glow { animation: pixel-agents-glow 1.5s ease-in-out infinite; }
+
+        @keyframes pixel-agents-scanline {
+          0% { transform: translateY(-100%); }
+          100% { transform: translateY(100vh); }
+        }
+
+        @keyframes pixel-agents-flicker {
+          0%, 95%, 100% { opacity: 1; }
+          96%, 99% { opacity: 0.7; }
+        }
+        .pixel-agents-flicker { animation: pixel-agents-flicker 4s ease-in-out infinite; }
+
+        @keyframes pixel-agents-permission-shake {
+          0%, 100% { transform: translateX(-50%); }
+          20%, 60% { transform: translateX(calc(-50% - 3px)); }
+          40%, 80% { transform: translateX(calc(-50% + 3px)); }
+        }
       `}</style>
 
       <OfficeCanvas
@@ -230,6 +256,8 @@ function App() {
         isDebugMode={isDebugMode}
         onToggleDebugMode={handleToggleDebugMode}
         workspaceFolders={workspaceFolders}
+        isLogOpen={isLogOpen}
+        onToggleLog={handleToggleLog}
       />
 
       {editor.isEditMode && editor.isDirty && (
@@ -293,22 +321,36 @@ function App() {
         containerRef={containerRef}
         zoom={editor.zoom}
         panRef={editor.panRef}
-        onCloseAgent={handleCloseAgent}
         agentMessages={agentMessages}
         agentNames={agentNames}
         onRenameAgent={updateAgentName}
+        agentWorkingDirs={agentWorkingDirs}
+        agentSources={agentSources}
+        onSendMessage={sendAgentMessage}
+        onPermissionAction={handlePermissionAction}
       />
 
       {isDebugMode && (
-        <DebugView
+        <ClaudeManagerPanel
           agents={agents}
-          selectedAgent={selectedAgent}
           agentTools={agentTools}
           agentStatuses={agentStatuses}
-          subagentTools={subagentTools}
-          onSelectAgent={handleSelectAgent}
+          agentMessages={agentMessages}
+          agentNames={agentNames}
+          officeState={officeState}
+          onClose={handleToggleDebugMode}
+          onFocusAgent={handleSelectAgent}
+          onCloseAgent={handleCloseAgent}
+          onSendMessage={sendAgentMessage}
+          onPermissionAction={handlePermissionAction}
         />
       )}
+
+      <SystemLogPanel
+        isOpen={isLogOpen}
+        onClose={() => setIsLogOpen(false)}
+        agentNames={agentNames}
+      />
     </div>
   )
 }

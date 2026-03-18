@@ -4,8 +4,6 @@ import type { AgentMessage } from '../hooks/useExtensionMessages.js'
 interface AgentChatDialogProps {
   id: number
   isSub: boolean
-  screenX: number
-  screenY: number
   displayName: string
   activityText: string
   dotColor: string | null
@@ -13,15 +11,19 @@ interface AgentChatDialogProps {
   messages: AgentMessage[]
   onClose: () => void
   onRename: (name: string) => void
+  onSendMessage?: (text: string) => void
+  onPermissionAction?: (action: 'approve' | 'deny') => void
+  source?: string
+  workingDir?: string
+  canInteract?: boolean
+  needsApproval?: boolean
 }
 
-const DIALOG_WIDTH = 260
+const PANEL_WIDTH = 380
 
 export function AgentChatDialog({
   id: _id,
   isSub,
-  screenX,
-  screenY,
   displayName,
   activityText,
   dotColor,
@@ -29,10 +31,17 @@ export function AgentChatDialog({
   messages,
   onClose,
   onRename,
+  onSendMessage,
+  onPermissionAction,
+  source,
+  workingDir,
+  canInteract = true,
+  needsApproval = false,
 }: AgentChatDialogProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [isRenaming, setIsRenaming] = useState(false)
   const [editName, setEditName] = useState(displayName)
+  const [draft, setDraft] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Auto-scroll to bottom when messages change
@@ -70,15 +79,28 @@ export function AgentChatDialog({
     }
   }, [finishRename, displayName])
 
+  const handleSubmit = useCallback((e: React.FormEvent) => {
+    e.preventDefault()
+    const trimmed = draft.trim()
+    if (!trimmed || !onSendMessage) return
+    onSendMessage(trimmed)
+    setDraft('')
+  }, [draft, onSendMessage])
+
   const visibleMessages = messages.slice(-12)
+  const sourceLabel = source ? source.toUpperCase() : 'AGENT'
+  const shortDir = workingDir
+    ? workingDir.replace(/\\/g, '/').split('/').filter(Boolean).slice(-3).join('/')
+    : null
 
   return (
     <div
       style={{
         position: 'absolute',
-        left: screenX - DIALOG_WIDTH / 2,
-        top: screenY - 24,
-        width: DIALOG_WIDTH,
+        right: 16,
+        top: 16,
+        bottom: 84,
+        width: `min(${PANEL_WIDTH}px, calc(100vw - 32px))`,
         background: 'var(--pixel-bg)',
         border: '2px solid var(--pixel-border-light)',
         boxShadow: 'var(--pixel-shadow)',
@@ -95,9 +117,9 @@ export function AgentChatDialog({
           display: 'flex',
           alignItems: 'center',
           gap: 5,
-          padding: '4px 8px',
+          padding: '8px 10px',
           borderBottom: '1px solid var(--pixel-border)',
-          minHeight: 28,
+          minHeight: 36,
         }}
       >
         {dotColor && (
@@ -125,10 +147,21 @@ export function AgentChatDialog({
         >
           {activityText}
         </span>
+        <span
+          style={{
+            fontSize: '12px',
+            color: 'var(--pixel-text-dim)',
+            border: '1px solid var(--pixel-border)',
+            padding: '2px 6px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {sourceLabel}
+        </span>
         {!isSub && (
           <button
             onClick={(e) => { e.stopPropagation(); onClose() }}
-            title="Close agent"
+            title="Close panel"
             style={{
               background: 'none',
               border: 'none',
@@ -147,15 +180,67 @@ export function AgentChatDialog({
         )}
       </div>
 
+      <div
+        style={{
+          padding: '8px 10px',
+          borderBottom: '1px solid var(--pixel-border)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: '13px', color: 'var(--pixel-text-dim)' }}>Status</span>
+          <span style={{ fontSize: '14px', color: isActive ? 'var(--pixel-status-active)' : 'var(--pixel-text)' }}>
+            {isActive ? 'Active' : 'Idle'}
+          </span>
+        </div>
+        {shortDir && (
+          <div style={{ fontSize: '13px', color: 'var(--pixel-text-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {shortDir}
+          </div>
+        )}
+        {needsApproval && !isSub && canInteract && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => onPermissionAction?.('approve')}
+              style={{
+                flex: 1,
+                background: 'rgba(80, 180, 120, 0.18)',
+                color: '#d6ffe4',
+                border: '1px solid #5ac88c',
+                padding: '8px 10px',
+                cursor: 'pointer',
+              }}
+            >
+              Approve
+            </button>
+            <button
+              onClick={() => onPermissionAction?.('deny')}
+              style={{
+                flex: 1,
+                background: 'rgba(220, 90, 90, 0.18)',
+                color: '#ffd6d6',
+                border: '1px solid #e16f6f',
+                padding: '8px 10px',
+                cursor: 'pointer',
+              }}
+            >
+              Deny
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Name row (editable) */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
-          padding: '3px 8px',
+          padding: '6px 10px',
           borderBottom: '1px solid var(--pixel-border)',
           gap: 4,
-          minHeight: 24,
+          minHeight: 28,
         }}
       >
         {isRenaming ? (
@@ -222,9 +307,9 @@ export function AgentChatDialog({
       {visibleMessages.length > 0 && (
         <div
           style={{
-            maxHeight: 160,
             overflowY: 'auto',
-            padding: '4px 0',
+            padding: '6px 0',
+            flex: 1,
           }}
         >
           {visibleMessages.map((m) => (
@@ -260,7 +345,8 @@ export function AgentChatDialog({
                   color: 'var(--vscode-foreground)',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
+                  whiteSpace: 'normal',
+                  wordBreak: 'break-word',
                   flex: 1,
                 }}
               >
@@ -273,9 +359,52 @@ export function AgentChatDialog({
       )}
 
       {visibleMessages.length === 0 && (
-        <div style={{ padding: '6px 8px', fontSize: '16px', color: 'var(--pixel-text-dim)', fontStyle: 'italic' }}>
+        <div style={{ padding: '10px', fontSize: '16px', color: 'var(--pixel-text-dim)', fontStyle: 'italic', flex: 1 }}>
           No activity yet
         </div>
+      )}
+
+      {!isSub && (
+        <form
+          onSubmit={handleSubmit}
+          style={{
+            borderTop: '1px solid var(--pixel-border)',
+            padding: '10px',
+            display: 'flex',
+            gap: 8,
+          }}
+        >
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            disabled={!canInteract}
+            placeholder={canInteract ? 'Send a message to this agent...' : 'Interaction not available for this provider yet'}
+            style={{
+              flex: 1,
+              fontSize: '16px',
+              background: 'var(--vscode-input-background, rgba(255,255,255,0.06))',
+              color: 'var(--vscode-input-foreground, var(--vscode-foreground))',
+              border: '1px solid var(--pixel-border)',
+              padding: '8px 10px',
+              outline: 'none',
+              fontFamily: 'inherit',
+            }}
+          />
+          <button
+            type="submit"
+            disabled={!canInteract || !draft.trim()}
+            style={{
+              background: !canInteract || !draft.trim() ? 'rgba(255,255,255,0.08)' : 'var(--pixel-agent-bg)',
+              color: !canInteract || !draft.trim() ? 'var(--pixel-text-dim)' : 'var(--pixel-agent-text)',
+              border: '1px solid var(--pixel-agent-border)',
+              padding: '8px 12px',
+              cursor: !canInteract || !draft.trim() ? 'default' : 'pointer',
+              minWidth: 72,
+            }}
+          >
+            Send
+          </button>
+        </form>
       )}
     </div>
   )

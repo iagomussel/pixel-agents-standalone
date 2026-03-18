@@ -3,15 +3,26 @@ import { statSync, readdirSync, openSync, readSync, closeSync } from "fs";
 import { join, basename, dirname } from "path";
 import { homedir } from "os";
 import { EventEmitter } from "events";
+import type { AgentSource } from "./types.js";
 
 const CLAUDE_PROJECTS_DIR = join(homedir(), ".claude", "projects");
-const ACTIVE_THRESHOLD_MS = 600_000; // 10 minutes — Claude can think for 5+ min without writing
+const CODEX_SESSIONS_DIR = join(homedir(), ".codex", "sessions");
+const INITIAL_SCAN_THRESHOLD_MS = 86_400_000; // 24 hours — include sessions from today
 const POLL_INTERVAL_MS = 1000;
+const WATCH_DEPTH = 5;
+
+const WATCH_ROOTS: Array<{ path: string; source: AgentSource; maxDepth: number }> = [
+  { path: CLAUDE_PROJECTS_DIR, source: "claude", maxDepth: 2 },
+  { path: CODEX_SESSIONS_DIR, source: "codex", maxDepth: 3 },
+];
 
 export interface WatchedFile {
   path: string;
+  source: AgentSource;
   sessionId: string;
+  projectDir: string;
   projectName: string;
+  currentWorkingDir: string | null;
   offset: number;
   lineBuffer: string;
 }
@@ -24,9 +35,9 @@ export class JsonlWatcher extends EventEmitter {
   start(): void {
     this.scanForActiveFiles();
 
-    this.watcher = watch(CLAUDE_PROJECTS_DIR, {
+    this.watcher = watch(WATCH_ROOTS.map((root) => root.path), {
       ignoreInitial: true,
-      depth: 3,
+      depth: WATCH_DEPTH,
     });
 
     this.watcher.on("add", (filePath: string) => {
@@ -44,43 +55,28 @@ export class JsonlWatcher extends EventEmitter {
   }
 
   private scanForActiveFiles(): void {
-    try {
-      const dirs = readdirSync(CLAUDE_PROJECTS_DIR, { withFileTypes: true });
-      for (const dir of dirs) {
-        if (!dir.isDirectory()) continue;
-        const dirPath = join(CLAUDE_PROJECTS_DIR, dir.name);
-        try {
-          const files = readdirSync(dirPath);
-          for (const f of files) {
-            if (!f.endsWith(".jsonl")) continue;
-            const filePath = join(dirPath, f);
-            const stat = statSync(filePath);
-            if (Date.now() - stat.mtimeMs < ACTIVE_THRESHOLD_MS) {
-              this.addFile(filePath);
-            }
-          }
-        } catch {
-          /* skip unreadable dirs */
-        }
-      }
-    } catch {
-      /* projects dir may not exist */
+    for (const root of WATCH_ROOTS) {
+      this.scanRoot(root.path, root.maxDepth);
     }
   }
 
   private addFile(filePath: string): void {
     if (this.files.has(filePath)) return;
 
-    const sessionId = basename(filePath, ".jsonl");
-    const projectDirName = basename(dirname(filePath));
-    // Extract short project name: "-Users-alice-Documents-myproject-657" -> "657"
-    const parts = projectDirName.split("-").filter(Boolean);
-    const projectName = parts[parts.length - 1] || sessionId.slice(0, 8);
+    const source = this.getSource(filePath);
+    if (!source) return;
+
+    const metadata = source === "codex"
+      ? this.readCodexMetadata(filePath)
+      : this.readClaudeMetadata(filePath);
 
     const file: WatchedFile = {
       path: filePath,
-      sessionId,
-      projectName,
+      source,
+      sessionId: metadata.sessionId,
+      projectDir: metadata.projectDir,
+      projectName: metadata.projectName,
+      currentWorkingDir: metadata.currentWorkingDir,
       offset: 0,
       lineBuffer: "",
     };
@@ -99,12 +95,10 @@ export class JsonlWatcher extends EventEmitter {
         if (stat.size > file.offset) {
           this.readNewLines(file);
         }
-        // Remove stale files
-        if (Date.now() - stat.mtimeMs > ACTIVE_THRESHOLD_MS) {
-          this.files.delete(path);
-          this.emit("fileRemoved", file);
-        }
+        // Only remove if file no longer exists (handled by catch below)
+        // Time-based removal was removed: agents can be idle for hours waiting for input
       } catch {
+        // File was deleted — remove the agent
         this.files.delete(path);
         this.emit("fileRemoved", file);
       }
@@ -145,5 +139,128 @@ export class JsonlWatcher extends EventEmitter {
 
   getActiveFiles(): WatchedFile[] {
     return Array.from(this.files.values());
+  }
+
+  private scanRoot(dirPath: string, remainingDepth: number): void {
+    try {
+      const entries = readdirSync(dirPath, { withFileTypes: true });
+      for (const entry of entries) {
+        const entryPath = join(dirPath, entry.name);
+        if (entry.isDirectory()) {
+          if (remainingDepth > 0) {
+            this.scanRoot(entryPath, remainingDepth - 1);
+          }
+          continue;
+        }
+        if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
+        const stat = statSync(entryPath);
+        if (Date.now() - stat.mtimeMs < INITIAL_SCAN_THRESHOLD_MS) {
+          this.addFile(entryPath);
+        }
+      }
+    } catch {
+      /* root may not exist yet */
+    }
+  }
+
+  private getSource(filePath: string): AgentSource | null {
+    for (const root of WATCH_ROOTS) {
+      if (filePath === root.path || filePath.startsWith(`${root.path}/`)) {
+        return root.source;
+      }
+    }
+    return null;
+  }
+
+  private readClaudeMetadata(filePath: string): Pick<WatchedFile, "sessionId" | "projectDir" | "projectName" | "currentWorkingDir"> {
+    const sessionId = basename(filePath, ".jsonl");
+    const projectDir = dirname(filePath);
+    const projectDirName = basename(projectDir);
+    const fallbackParts = projectDirName.split("-").filter(Boolean);
+    const fallbackProjectName = fallbackParts[fallbackParts.length - 1] || sessionId.slice(0, 8);
+
+    try {
+      const stat = statSync(filePath);
+      const headerLength = Math.min(stat.size, 24_576);
+      const buffer = Buffer.alloc(headerLength);
+      const fd = openSync(filePath, "r");
+      readSync(fd, buffer, 0, buffer.length, 0);
+      closeSync(fd);
+
+      const lines = buffer.toString("utf-8").split("\n");
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const record = JSON.parse(trimmed) as { cwd?: unknown; message?: { cwd?: unknown } };
+        const cwd = typeof record.cwd === "string"
+          ? record.cwd
+          : typeof record.message?.cwd === "string"
+            ? record.message.cwd
+            : null;
+        if (cwd) {
+          return {
+            sessionId,
+            projectDir,
+            projectName: basename(cwd) || fallbackProjectName,
+            currentWorkingDir: cwd,
+          };
+        }
+      }
+    } catch {
+      /* fall back to encoded directory name */
+    }
+
+    return {
+      sessionId,
+      projectDir,
+      projectName: fallbackProjectName,
+      currentWorkingDir: null,
+    };
+  }
+
+  private readCodexMetadata(filePath: string): Pick<WatchedFile, "sessionId" | "projectDir" | "projectName" | "currentWorkingDir"> {
+    const fallbackSessionId = this.extractCodexSessionId(filePath);
+    const fallbackProjectDir = dirname(filePath);
+
+    try {
+      const stat = statSync(filePath);
+      const headerLength = Math.min(stat.size, 16_384);
+      const buffer = Buffer.alloc(headerLength);
+      const fd = openSync(filePath, "r");
+      readSync(fd, buffer, 0, buffer.length, 0);
+      closeSync(fd);
+
+      const firstLine = buffer.toString("utf-8").split("\n")[0]?.trim();
+      if (!firstLine) {
+        throw new Error("missing session header");
+      }
+
+      const record = JSON.parse(firstLine) as { type?: string; payload?: Record<string, unknown> };
+      const payload = record.payload ?? {};
+      const sessionId = typeof payload.id === "string" ? payload.id : fallbackSessionId;
+      const cwd = typeof payload.cwd === "string" ? payload.cwd : null;
+      const projectDir = cwd ?? fallbackProjectDir;
+      const projectName = cwd ? basename(cwd) || sessionId.slice(0, 8) : sessionId.slice(0, 8);
+
+      return {
+        sessionId,
+        projectDir,
+        projectName,
+        currentWorkingDir: cwd,
+      };
+    } catch {
+      return {
+        sessionId: fallbackSessionId,
+        projectDir: fallbackProjectDir,
+        projectName: fallbackSessionId.slice(0, 8),
+        currentWorkingDir: null,
+      };
+    }
+  }
+
+  private extractCodexSessionId(filePath: string): string {
+    const fileName = basename(filePath, ".jsonl");
+    const match = fileName.match(/([0-9a-f]{8,}(?:-[0-9a-f]{4,}){2,})$/i);
+    return match?.[1] ?? fileName;
   }
 }

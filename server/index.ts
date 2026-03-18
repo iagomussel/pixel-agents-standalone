@@ -2,6 +2,7 @@ import express from "express";
 import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { join, dirname } from "path";
+import { spawn } from "child_process";
 import { homedir } from "os";
 import { fileURLToPath } from "url";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
@@ -21,10 +22,67 @@ const PORT = parseInt(process.env.PORT || "3456", 10);
 const IDLE_SHUTDOWN_MS = 600_000; // 10 minutes
 
 // State
-const agents = new Map<string, TrackedAgent>(); // sessionId -> agent
+const agents = new Map<string, TrackedAgent>(); // `${source}:${sessionId}` -> agent
 let nextAgentId = 1;
 const clients = new Set<WebSocket>();
 let lastActivityTime = Date.now();
+
+function getAgentKey(source: string, sessionId: string): string {
+  return `${source}:${sessionId}`;
+}
+
+function findAgentById(id: number): TrackedAgent | null {
+  for (const agent of agents.values()) {
+    if (agent.id === id) return agent;
+  }
+  return null;
+}
+
+function getAgentCwd(agent: TrackedAgent): string {
+  return agent.currentWorkingDir ?? process.cwd();
+}
+
+function spawnDetached(command: string, args: string[], cwd: string): void {
+  const child = spawn(command, args, {
+    cwd,
+    detached: true,
+    stdio: "ignore",
+  });
+  child.on("error", (err) => {
+    console.error(`[Server] Failed to launch ${command}: ${err.message}`);
+  });
+  child.unref();
+}
+
+function sendPromptToAgent(agent: TrackedAgent, prompt: string): boolean {
+  const cwd = getAgentCwd(agent);
+  try {
+    switch (agent.source) {
+      case "claude":
+        spawnDetached("claude", ["-p", "--resume", agent.sessionId, prompt], cwd);
+        return true;
+      case "codex":
+        spawnDetached("codex", ["exec", "resume", "--json", "--skip-git-repo-check", agent.sessionId, prompt], cwd);
+        return true;
+      case "opencode":
+        spawnDetached("opencode", ["run", "--session", agent.sessionId, "--format", "json", prompt], cwd);
+        return true;
+      default:
+        console.warn(`[Server] Prompt dispatch not implemented for source: ${agent.source}`);
+        return false;
+    }
+  } catch (err) {
+    console.error(`[Server] Failed to send prompt to agent ${agent.id}: ${err instanceof Error ? err.message : err}`);
+    return false;
+  }
+}
+
+function handlePermissionAction(agent: TrackedAgent, action: "approve" | "deny"): boolean {
+  const prompt = action === "approve"
+    ? "The user approved the pending action. Continue."
+    : "The user denied the pending action. Do not run that action. Explain briefly and choose a safer alternative.";
+  return sendPromptToAgent(agent, prompt);
+}
 
 // Load assets at startup
 // In dev mode (tsx), __dirname is server/ so assets are at ../webview-ui/public/assets/
@@ -129,6 +187,40 @@ app.post("/api/layout", (req, res) => {
   }
 });
 
+// Sprite generation via Gemini
+app.post("/api/generate-sprite", async (req, res) => {
+  const { prompt } = req.body as { prompt?: string };
+  if (!prompt || typeof prompt !== "string") {
+    res.status(400).json({ error: "prompt is required" });
+    return;
+  }
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    res.status(500).json({ error: "GEMINI_API_KEY not set" });
+    return;
+  }
+  try {
+    const { GoogleGenAI } = await import("@google/genai");
+    const ai = new GoogleGenAI({ apiKey });
+    const fullPrompt = `Top-down pixel art sprite for a 2D office/room game, transparent background, 16-bit style. ${prompt}`;
+    const response = await ai.models.generateContent({
+      model: "gemini-2.0-flash-preview-image-generation",
+      contents: fullPrompt,
+      config: { responseModalities: ["TEXT", "IMAGE"] },
+    } as Parameters<typeof ai.models.generateContent>[0]);
+    const parts = response.candidates?.[0]?.content?.parts ?? [];
+    const imgPart = parts.find((p: { inlineData?: { data: string; mimeType: string } }) => p.inlineData);
+    if (!imgPart?.inlineData) {
+      res.status(500).json({ error: "No image returned from Gemini" });
+      return;
+    }
+    res.json({ imageBase64: imgPart.inlineData.data, mimeType: imgPart.inlineData.mimeType });
+  } catch (err) {
+    console.error(`[Server] Gemini error: ${err instanceof Error ? err.message : err}`);
+    res.status(500).json({ error: err instanceof Error ? err.message : "Generation failed" });
+  }
+});
+
 const server = createServer(app);
 
 // WebSocket
@@ -197,14 +289,16 @@ function sendInitialData(ws: WebSocket): void {
   const agentIds = agentList.map((a) => a.id);
   const folderNames: Record<number, string> = {};
   const agentMeta: Record<number, { palette?: number; hueShift?: number; seatId?: string }> = {};
+  const agentSources: Record<number, TrackedAgent["source"]> = {};
   for (const a of agentList) {
     folderNames[a.id] = a.projectName;
+    agentSources[a.id] = a.source;
     if (persistedSeats?.[a.id]) {
       const s = persistedSeats[a.id];
       agentMeta[a.id] = { palette: s.palette, hueShift: s.hueShift, seatId: s.seatId ?? undefined };
     }
   }
-  ws.send(JSON.stringify({ type: "existingAgents", agents: agentIds, folderNames, agentMeta }));
+  ws.send(JSON.stringify({ type: "existingAgents", agents: agentIds, folderNames, agentMeta, agentSources }));
 
   // Send layout (must come after existingAgents — the hook buffers agents until layout arrives)
   if (currentLayout) {
@@ -212,6 +306,12 @@ function sendInitialData(ws: WebSocket): void {
   } else {
     // Send null layout to trigger default layout creation in the UI
     ws.send(JSON.stringify({ type: "layoutLoaded", layout: null, version: 0 }));
+  }
+
+  for (const agent of agentList) {
+    if (agent.currentWorkingDir) {
+      ws.send(JSON.stringify({ type: "agentWorkingDir", id: agent.id, dir: agent.currentWorkingDir }));
+    }
   }
 }
 
@@ -254,6 +354,16 @@ wss.on("connection", (ws) => {
         } catch (err) {
           console.error(`[Server] Failed to save agent names: ${err instanceof Error ? err.message : err}`);
         }
+      } else if (msg.type === "userMessage") {
+        const agent = findAgentById(msg.agentId);
+        if (agent && typeof msg.text === "string" && msg.text.trim()) {
+          sendPromptToAgent(agent, msg.text.trim());
+        }
+      } else if (msg.type === "permissionAction") {
+        const agent = findAgentById(msg.agentId);
+        if (agent && (msg.action === "approve" || msg.action === "deny")) {
+          handlePermissionAction(agent, msg.action);
+        }
       }
     } catch {
       /* ignore invalid messages */
@@ -267,13 +377,15 @@ wss.on("connection", (ws) => {
 const watcher = new JsonlWatcher();
 
 watcher.on("fileAdded", (file: WatchedFile) => {
-  if (agents.has(file.sessionId)) return;
+  const agentKey = getAgentKey(file.source, file.sessionId);
+  if (agents.has(agentKey)) return;
   lastActivityTime = Date.now();
 
   const agent: TrackedAgent = {
     id: nextAgentId++,
+    source: file.source,
     sessionId: file.sessionId,
-    projectDir: dirname(file.path),
+    projectDir: file.projectDir,
     projectName: file.projectName,
     jsonlFile: file.path,
     fileOffset: 0,
@@ -287,25 +399,30 @@ watcher.on("fileAdded", (file: WatchedFile) => {
     permissionSent: false,
     hadToolsInTurn: false,
     lastActivityTime: Date.now(),
+    currentWorkingDir: file.currentWorkingDir,
   };
 
-  agents.set(file.sessionId, agent);
-  broadcast({ type: "agentCreated", id: agent.id, folderName: agent.projectName });
-  console.log(`Agent ${agent.id} joined: ${agent.projectName} (${file.sessionId.slice(0, 8)})`);
+  agents.set(agentKey, agent);
+  broadcast({ type: "agentCreated", id: agent.id, folderName: agent.projectName, source: agent.source });
+  if (agent.currentWorkingDir) {
+    broadcast({ type: "agentWorkingDir", id: agent.id, dir: agent.currentWorkingDir });
+  }
+  console.log(`Agent ${agent.id} joined: [${agent.source}] ${agent.projectName} (${file.sessionId.slice(0, 8)})`);
 });
 
 watcher.on("fileRemoved", (file: WatchedFile) => {
-  const agent = agents.get(file.sessionId);
+  const agentKey = getAgentKey(file.source, file.sessionId);
+  const agent = agents.get(agentKey);
   if (!agent) return;
 
   clearAgentTimers(agent.id);
-  agents.delete(file.sessionId);
+  agents.delete(agentKey);
   broadcast({ type: "agentClosed", id: agent.id });
-  console.log(`Agent ${agent.id} left: ${agent.projectName}`);
+  console.log(`Agent ${agent.id} left: [${agent.source}] ${agent.projectName}`);
 });
 
 watcher.on("line", (file: WatchedFile, line: string) => {
-  const agent = agents.get(file.sessionId);
+  const agent = agents.get(getAgentKey(file.source, file.sessionId));
   if (!agent) return;
   lastActivityTime = Date.now();
 
@@ -316,7 +433,7 @@ watcher.on("line", (file: WatchedFile, line: string) => {
 watcher.start();
 server.listen(PORT, () => {
   console.log(`Pixel Agents server running at http://localhost:${PORT}`);
-  console.log(`Watching ~/.claude/projects/ for active sessions...`);
+  console.log(`Watching Claude and Codex session directories for active agents...`);
 });
 
 // Idle shutdown

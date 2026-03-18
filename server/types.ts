@@ -1,5 +1,6 @@
 // Agent activity states
 export type AgentActivity = "idle" | "typing" | "reading" | "waiting" | "permission";
+export type AgentSource = "claude" | "codex" | "opencode" | "gemini";
 
 // Tool info for speech bubbles
 export interface ActiveTool {
@@ -11,6 +12,7 @@ export interface ActiveTool {
 // Agent as tracked by the server
 export interface TrackedAgent {
   id: number;
+  source: AgentSource;
   sessionId: string;
   projectDir: string;
   projectName: string;
@@ -26,14 +28,15 @@ export interface TrackedAgent {
   permissionSent: boolean;
   hadToolsInTurn: boolean;
   lastActivityTime: number;
+  currentWorkingDir: string | null;
 }
 
 // Messages sent from server to client via WebSocket
 // Must match the upstream message format expected by useExtensionMessages
 export type ServerMessage =
-  | { type: "agentCreated"; id: number; folderName: string }
+  | { type: "agentCreated"; id: number; folderName: string; source?: AgentSource }
   | { type: "agentClosed"; id: number }
-  | { type: "existingAgents"; agents: number[]; folderNames: Record<number, string>; agentMeta?: Record<number, { palette?: number; hueShift?: number; seatId?: string }> }
+  | { type: "existingAgents"; agents: number[]; folderNames: Record<number, string>; agentMeta?: Record<number, { palette?: number; hueShift?: number; seatId?: string }>; agentSources?: Record<number, AgentSource> }
   | { type: "agentToolStart"; id: number; toolId: string; status: string }
   | { type: "agentToolDone"; id: number; toolId: string }
   | { type: "agentToolsClear"; id: number }
@@ -50,7 +53,8 @@ export type ServerMessage =
   | { type: "furnitureAssetsLoaded"; catalog: unknown[]; sprites: Record<string, unknown> }
   | { type: "layoutLoaded"; layout: unknown; version: number }
   | { type: "settingsLoaded"; soundEnabled: boolean }
-  | { type: "agentNamesLoaded"; names: Record<number, string> };
+  | { type: "agentNamesLoaded"; names: Record<number, string> }
+  | { type: "agentWorkingDir"; id: number; dir: string };
 
 // Messages sent from client to server
 export type ClientMessage =
@@ -58,4 +62,8 @@ export type ClientMessage =
   | { type: "webviewReady" }
   | { type: "saveLayout"; layout: unknown }
   | { type: "saveAgentSeats"; seats: Record<number, { palette: number; hueShift: number; seatId: string | null }> }
-  | { type: "saveAgentNames"; names: Record<number, string> };
+  | { type: "saveAgentNames"; names: Record<number, string> }
+  | { type: "userMessage"; agentId: number; text: string }
+  | { type: "permissionAction"; agentId: number; action: "approve" | "deny" }
+  | { type: "focusAgent"; id: number }
+  | { type: "closeAgent"; id: number };

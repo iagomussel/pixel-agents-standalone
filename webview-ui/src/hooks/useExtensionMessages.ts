@@ -48,6 +48,8 @@ export interface AgentMessage {
   done: boolean
 }
 
+export type AgentSource = 'claude' | 'codex' | 'opencode' | 'gemini'
+
 export interface ExtensionMessageState {
   agents: number[]
   selectedAgent: number | null
@@ -60,7 +62,11 @@ export interface ExtensionMessageState {
   workspaceFolders: WorkspaceFolder[]
   agentMessages: Record<number, AgentMessage[]>
   agentNames: Record<number, string>
+  agentSources: Record<number, AgentSource>
   updateAgentName: (id: number, name: string) => void
+  agentWorkingDirs: Record<number, string>
+  sendAgentMessage: (agentId: number, text: string) => void
+  handlePermissionAction: (agentId: number, action: 'approve' | 'deny') => void
 }
 
 function saveAgentSeats(os: OfficeState): void {
@@ -100,9 +106,39 @@ export function useExtensionMessages(
   const [workspaceFolders, setWorkspaceFolders] = useState<WorkspaceFolder[]>([])
   const [agentMessages, setAgentMessages] = useState<Record<number, AgentMessage[]>>({})
   const [agentNames, setAgentNames] = useState<Record<number, string>>({})
+  const [agentSources, setAgentSources] = useState<Record<number, AgentSource>>({})
+  const [agentWorkingDirs, setAgentWorkingDirs] = useState<Record<number, string>>({})
 
   // Track whether initial layout has been loaded (ref to avoid re-render)
   const layoutReadyRef = useRef(false)
+
+  const sendAgentMessage = useCallback((agentId: number, text: string) => {
+    const trimmed = text.trim()
+    if (!trimmed) return
+    setAgentMessages((prev) =>
+      appendMessage(prev, agentId, {
+        id: `user-${Date.now()}`,
+        text: `You: ${trimmed}`,
+        timestamp: Date.now(),
+        kind: 'info',
+        done: true,
+      }),
+    )
+    vscode.postMessage({ type: 'userMessage', agentId, text: trimmed })
+  }, [])
+
+  const handlePermissionAction = useCallback((agentId: number, action: 'approve' | 'deny') => {
+    setAgentMessages((prev) =>
+      appendMessage(prev, agentId, {
+        id: `perm-action-${Date.now()}`,
+        text: action === 'approve' ? 'You approved the pending action' : 'You denied the pending action',
+        timestamp: Date.now(),
+        kind: 'info',
+        done: true,
+      }),
+    )
+    vscode.postMessage({ type: 'permissionAction', agentId, action })
+  }, [])
 
   const updateAgentName = useCallback((id: number, name: string) => {
     setAgentNames((prev) => {
@@ -120,7 +156,7 @@ export function useExtensionMessages(
 
   useEffect(() => {
     // Buffer agents from existingAgents until layout is loaded
-    let pendingAgents: Array<{ id: number; palette?: number; hueShift?: number; seatId?: string; folderName?: string }> = []
+    let pendingAgents: Array<{ id: number; palette?: number; hueShift?: number; seatId?: string; folderName?: string; source?: AgentSource }> = []
 
     const handler = (e: MessageEvent) => {
       const msg = e.data
@@ -143,7 +179,7 @@ export function useExtensionMessages(
         }
         // Add buffered agents now that layout (and seats) are correct
         for (const p of pendingAgents) {
-          os.addAgent(p.id, p.palette, p.hueShift, p.seatId, true, p.folderName)
+          os.addAgent(p.id, p.palette, p.hueShift, p.seatId, true, p.folderName, p.source)
         }
         pendingAgents = []
         layoutReadyRef.current = true
@@ -154,9 +190,11 @@ export function useExtensionMessages(
       } else if (msg.type === 'agentCreated') {
         const id = msg.id as number
         const folderName = msg.folderName as string | undefined
+        const source = (msg.source as AgentSource | undefined) ?? 'claude'
         setAgents((prev) => (prev.includes(id) ? prev : [...prev, id]))
         setSelectedAgent(id)
-        os.addAgent(id, undefined, undefined, undefined, undefined, folderName)
+        setAgentSources((prev) => ({ ...prev, [id]: source }))
+        os.addAgent(id, undefined, undefined, undefined, undefined, folderName, source)
         saveAgentSeats(os)
       } else if (msg.type === 'agentClosed') {
         const id = msg.id as number
@@ -186,6 +224,18 @@ export function useExtensionMessages(
           delete next[id]
           return next
         })
+        setAgentWorkingDirs((prev) => {
+          if (!(id in prev)) return prev
+          const next = { ...prev }
+          delete next[id]
+          return next
+        })
+        setAgentSources((prev) => {
+          if (!(id in prev)) return prev
+          const next = { ...prev }
+          delete next[id]
+          return next
+        })
         // Remove all sub-agent characters belonging to this agent
         os.removeAllSubagents(id)
         setSubagentCharacters((prev) => prev.filter((s) => s.parentAgentId !== id))
@@ -194,11 +244,19 @@ export function useExtensionMessages(
         const incoming = msg.agents as number[]
         const meta = (msg.agentMeta || {}) as Record<number, { palette?: number; hueShift?: number; seatId?: string }>
         const folderNames = (msg.folderNames || {}) as Record<number, string>
+        const incomingSources = (msg.agentSources || {}) as Record<number, AgentSource>
         // Buffer agents — they'll be added in layoutLoaded after seats are built
         for (const id of incoming) {
           const m = meta[id]
-          pendingAgents.push({ id, palette: m?.palette, hueShift: m?.hueShift, seatId: m?.seatId, folderName: folderNames[id] })
+          pendingAgents.push({ id, palette: m?.palette, hueShift: m?.hueShift, seatId: m?.seatId, folderName: folderNames[id], source: incomingSources[id] })
         }
+        setAgentSources((prev) => {
+          const next = { ...prev }
+          for (const id of incoming) {
+            next[id] = incomingSources[id] ?? next[id] ?? 'claude'
+          }
+          return next
+        })
         setAgents((prev) => {
           const ids = new Set(prev)
           const merged = [...prev]
@@ -432,6 +490,10 @@ export function useExtensionMessages(
       } else if (msg.type === 'agentNamesLoaded') {
         const names = msg.names as Record<number, string>
         setAgentNames(names)
+      } else if (msg.type === 'agentWorkingDir') {
+        const id = msg.id as number
+        const dir = msg.dir as string
+        setAgentWorkingDirs((prev) => ({ ...prev, [id]: dir }))
       }
     }
     window.addEventListener('message', handler)
@@ -439,5 +501,5 @@ export function useExtensionMessages(
     return () => window.removeEventListener('message', handler)
   }, [getOfficeState])
 
-  return { agents, selectedAgent, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets, workspaceFolders, agentMessages, agentNames, updateAgentName }
+  return { agents, selectedAgent, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets, workspaceFolders, agentMessages, agentNames, agentSources, updateAgentName, agentWorkingDirs, sendAgentMessage, handlePermissionAction }
 }

@@ -193,7 +193,15 @@ export class OfficeState {
     return { palette, hueShift }
   }
 
-  addAgent(id: number, preferredPalette?: number, preferredHueShift?: number, preferredSeatId?: string, skipSpawnEffect?: boolean, folderName?: string): void {
+  addAgent(
+    id: number,
+    preferredPalette?: number,
+    preferredHueShift?: number,
+    preferredSeatId?: string,
+    skipSpawnEffect?: boolean,
+    folderName?: string,
+    source?: 'claude' | 'codex' | 'opencode' | 'gemini',
+  ): void {
     if (this.characters.has(id)) return
 
     let palette: number
@@ -238,6 +246,9 @@ export class OfficeState {
 
     if (folderName) {
       ch.folderName = folderName
+    }
+    if (source) {
+      ch.source = source
     }
     if (!skipSpawnEffect) {
       ch.matrixEffect = 'spawn'
