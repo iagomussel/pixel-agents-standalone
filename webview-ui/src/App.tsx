@@ -15,10 +15,12 @@ import { ZoomControls } from './components/ZoomControls.js'
 import { BottomToolbar } from './components/BottomToolbar.js'
 import { ClaudeManagerPanel } from './components/ClaudeManagerPanel.js'
 import { SystemLogPanel } from './components/SystemLogPanel.js'
+import { SystemHeader } from './components/SystemHeader.js'
 
 // Game state lives outside React — updated imperatively by message handlers
 const officeStateRef = { current: null as OfficeState | null }
 const editorState = new EditorState()
+const SYSTEM_HEADER_HEIGHT_PX = 38
 
 function getOfficeState(): OfficeState {
   if (!officeStateRef.current) {
@@ -43,7 +45,15 @@ const actionBarBtnDisabled: React.CSSProperties = {
   cursor: 'default',
 }
 
-function EditActionBar({ editor, editorState: es }: { editor: ReturnType<typeof useEditorActions>; editorState: EditorState }) {
+function EditActionBar({
+  editor,
+  editorState: es,
+  topOffset,
+}: {
+  editor: ReturnType<typeof useEditorActions>
+  editorState: EditorState
+  topOffset: number
+}) {
   const [showResetConfirm, setShowResetConfirm] = useState(false)
 
   const undoDisabled = es.undoStack.length === 0
@@ -53,7 +63,7 @@ function EditActionBar({ editor, editorState: es }: { editor: ReturnType<typeof 
     <div
       style={{
         position: 'absolute',
-        top: 8,
+        top: topOffset,
         left: '50%',
         transform: 'translateX(-50%)',
         zIndex: 'var(--pixel-controls-z)',
@@ -122,7 +132,7 @@ function App() {
 
   const isEditDirty = useCallback(() => editor.isEditMode && editor.isDirty, [editor.isEditMode, editor.isDirty])
 
-  const { agents, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets, workspaceFolders, agentMessages, agentNames, agentSources, updateAgentName, agentWorkingDirs, sendAgentMessage, handlePermissionAction } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty)
+  const { agents, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets, workspaceFolders, agentMessages, agentNames, agentSources, updateAgentName, agentWorkingDirs, agentTokens, sendAgentMessage, handlePermissionAction } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty)
 
   const [isDebugMode, setIsDebugMode] = useState(false)
   const [isLogOpen, setIsLogOpen] = useState(false)
@@ -219,6 +229,8 @@ function App() {
         }
       `}</style>
 
+      <SystemHeader agentCount={agents.length} agentTokens={agentTokens} />
+
       <OfficeCanvas
         officeState={officeState}
         onClick={handleClick}
@@ -251,7 +263,6 @@ function App() {
 
       <BottomToolbar
         isEditMode={editor.isEditMode}
-        onOpenClaude={editor.handleOpenClaude}
         onToggleEditMode={editor.handleToggleEditMode}
         isDebugMode={isDebugMode}
         onToggleDebugMode={handleToggleDebugMode}
@@ -261,14 +272,14 @@ function App() {
       />
 
       {editor.isEditMode && editor.isDirty && (
-        <EditActionBar editor={editor} editorState={editorState} />
+        <EditActionBar editor={editor} editorState={editorState} topOffset={SYSTEM_HEADER_HEIGHT_PX + 10} />
       )}
 
       {showRotateHint && (
         <div
           style={{
             position: 'absolute',
-            top: 8,
+            top: SYSTEM_HEADER_HEIGHT_PX + 10,
             left: '50%',
             transform: editor.isDirty ? 'translateX(calc(-50% + 100px))' : 'translateX(-50%)',
             zIndex: 49,

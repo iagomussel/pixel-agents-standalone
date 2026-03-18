@@ -25,6 +25,42 @@ function extractWorkingDir(toolName: string, input: Record<string, unknown>): st
   return path.dirname(filePath);
 }
 
+function extractUsageCounts(payload: Record<string, unknown>): { input: number; output: number } | null {
+  const readNumber = (...keys: string[]): number | null => {
+    for (const key of keys) {
+      const value = payload[key];
+      if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
+      }
+    }
+    return null;
+  };
+
+  const input = readNumber("input_tokens", "inputTokens", "prompt_tokens", "promptTokens");
+  const output = readNumber("output_tokens", "outputTokens", "completion_tokens", "completionTokens");
+  if (input === null && output === null) return null;
+  return { input: input ?? 0, output: output ?? 0 };
+}
+
+function emitTokenUsage(
+  agent: TrackedAgent,
+  counts: { input: number; output: number } | null,
+  emit: (msg: ServerMessage) => void,
+): void {
+  if (!counts) return;
+  if (counts.input === 0 && counts.output === 0) return;
+  agent.totalInputTokens += counts.input;
+  agent.totalOutputTokens += counts.output;
+  emit({
+    type: "agentTokenUsage",
+    id: agent.id,
+    inputTokens: counts.input,
+    outputTokens: counts.output,
+    totalInput: agent.totalInputTokens,
+    totalOutput: agent.totalOutputTokens,
+  });
+}
+
 function formatToolStatus(toolName: string, input: Record<string, unknown>): string {
   const base = (p: unknown) => (typeof p === "string" ? path.basename(p) : "");
   switch (toolName) {
@@ -242,6 +278,9 @@ function handleAssistantMessage(
   emit: (msg: ServerMessage) => void,
 ): void {
   const message = record.message as Record<string, unknown> | undefined;
+  if (message) {
+    emitTokenUsage(agent, extractUsageCounts(message), emit);
+  }
   if (!message?.content) return;
 
   const content = message.content as Array<Record<string, unknown>>;
@@ -344,6 +383,10 @@ function handleCodexEventMessage(
     markAgentActive(agent, emit, "typing");
     startIdleTimeout(agent, emit);
     return;
+  }
+
+  if (payloadType === "token_count") {
+    emitTokenUsage(agent, extractUsageCounts(payload), emit);
   }
 
   if (payloadType === "token_count" && agent.activeTools.size === 0) {

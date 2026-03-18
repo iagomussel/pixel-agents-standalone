@@ -29,6 +29,8 @@ export interface TrackedAgent {
   hadToolsInTurn: boolean;
   lastActivityTime: number;
   currentWorkingDir: string | null;
+  totalInputTokens: number;
+  totalOutputTokens: number;
 }
 
 // Messages sent from server to client via WebSocket
@@ -52,9 +54,11 @@ export type ServerMessage =
   | { type: "wallTilesLoaded"; sprites: unknown[] }
   | { type: "furnitureAssetsLoaded"; catalog: unknown[]; sprites: Record<string, unknown> }
   | { type: "layoutLoaded"; layout: unknown; version: number }
+  | { type: "workspaceFolders"; folders: Array<{ name: string; path: string }> }
   | { type: "settingsLoaded"; soundEnabled: boolean }
   | { type: "agentNamesLoaded"; names: Record<number, string> }
-  | { type: "agentWorkingDir"; id: number; dir: string };
+  | { type: "agentWorkingDir"; id: number; dir: string }
+  | { type: "agentTokenUsage"; id: number; inputTokens: number; outputTokens: number; totalInput: number; totalOutput: number };
 
 // Messages sent from client to server
 export type ClientMessage =
@@ -65,5 +69,7 @@ export type ClientMessage =
   | { type: "saveAgentNames"; names: Record<number, string> }
   | { type: "userMessage"; agentId: number; text: string }
   | { type: "permissionAction"; agentId: number; action: "approve" | "deny" }
+  | { type: "openClaude"; folderPath?: string }
+  | { type: "launchAgent"; provider: AgentSource; folderPath: string }
   | { type: "focusAgent"; id: number }
   | { type: "closeAgent"; id: number };

@@ -27,6 +27,20 @@ let nextAgentId = 1;
 const clients = new Set<WebSocket>();
 let lastActivityTime = Date.now();
 
+function collectWorkspaceFolders(): Array<{ name: string; path: string }> {
+  const folders = new Map<string, { name: string; path: string }>();
+  const cwd = process.cwd();
+  folders.set(cwd, { name: "[Current Dir]", path: cwd });
+
+  for (const agent of agents.values()) {
+    const dir = agent.currentWorkingDir ?? agent.projectDir;
+    if (!dir || folders.has(dir)) continue;
+    folders.set(dir, { name: agent.projectName || dir.split("/").pop() || dir, path: dir });
+  }
+
+  return Array.from(folders.values());
+}
+
 function getAgentKey(source: string, sessionId: string): string {
   return `${source}:${sessionId}`;
 }
@@ -250,6 +264,8 @@ function broadcast(msg: ServerMessage): void {
 }
 
 function sendInitialData(ws: WebSocket): void {
+  ws.send(JSON.stringify({ type: "workspaceFolders", folders: collectWorkspaceFolders() }));
+
   // Send settings
   ws.send(JSON.stringify({ type: "settingsLoaded", soundEnabled: false }));
 
@@ -312,6 +328,16 @@ function sendInitialData(ws: WebSocket): void {
     if (agent.currentWorkingDir) {
       ws.send(JSON.stringify({ type: "agentWorkingDir", id: agent.id, dir: agent.currentWorkingDir }));
     }
+    if (agent.totalInputTokens > 0 || agent.totalOutputTokens > 0) {
+      ws.send(JSON.stringify({
+        type: "agentTokenUsage",
+        id: agent.id,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalInput: agent.totalInputTokens,
+        totalOutput: agent.totalOutputTokens,
+      }));
+    }
   }
 }
 
@@ -353,6 +379,26 @@ wss.on("connection", (ws) => {
           writeFileSync(persistedNamesPath, JSON.stringify(msg.names, null, 2));
         } catch (err) {
           console.error(`[Server] Failed to save agent names: ${err instanceof Error ? err.message : err}`);
+        }
+      } else if (msg.type === "openClaude") {
+        const folderPath = typeof msg.folderPath === "string" && msg.folderPath.trim() ? msg.folderPath.trim() : process.cwd();
+        console.log(`[Server] Launching Claude in ${folderPath}`);
+        spawnDetached("claude", ["-p", "Hello! I am ready to help in this pixel office."], folderPath);
+      } else if (msg.type === "launchAgent") {
+        const folderPath = typeof msg.folderPath === "string" && msg.folderPath.trim() ? msg.folderPath.trim() : process.cwd();
+        console.log(`[Server] Launching ${msg.provider} in ${folderPath}`);
+        switch (msg.provider) {
+          case "claude":
+            spawnDetached("claude", ["-p", "Hello! I am ready to help."], folderPath);
+            break;
+          case "codex":
+            spawnDetached("codex", ["exec", "--json", "--skip-git-repo-check", "Hello!"], folderPath);
+            break;
+          case "opencode":
+            spawnDetached("opencode", ["run", "--format", "json", "Hello!"], folderPath);
+            break;
+          default:
+            console.warn(`[Server] Unknown provider: ${String(msg.provider)}`);
         }
       } else if (msg.type === "userMessage") {
         const agent = findAgentById(msg.agentId);
@@ -400,6 +446,8 @@ watcher.on("fileAdded", (file: WatchedFile) => {
     hadToolsInTurn: false,
     lastActivityTime: Date.now(),
     currentWorkingDir: file.currentWorkingDir,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
   };
 
   agents.set(agentKey, agent);

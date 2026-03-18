@@ -65,6 +65,7 @@ export interface ExtensionMessageState {
   agentSources: Record<number, AgentSource>
   updateAgentName: (id: number, name: string) => void
   agentWorkingDirs: Record<number, string>
+  agentTokens: Record<number, { input: number; output: number }>
   sendAgentMessage: (agentId: number, text: string) => void
   handlePermissionAction: (agentId: number, action: 'approve' | 'deny') => void
 }
@@ -108,6 +109,7 @@ export function useExtensionMessages(
   const [agentNames, setAgentNames] = useState<Record<number, string>>({})
   const [agentSources, setAgentSources] = useState<Record<number, AgentSource>>({})
   const [agentWorkingDirs, setAgentWorkingDirs] = useState<Record<number, string>>({})
+  const [agentTokens, setAgentTokens] = useState<Record<number, { input: number; output: number }>>({})
 
   // Track whether initial layout has been loaded (ref to avoid re-render)
   const layoutReadyRef = useRef(false)
@@ -231,6 +233,12 @@ export function useExtensionMessages(
           return next
         })
         setAgentSources((prev) => {
+          if (!(id in prev)) return prev
+          const next = { ...prev }
+          delete next[id]
+          return next
+        })
+        setAgentTokens((prev) => {
           if (!(id in prev)) return prev
           const next = { ...prev }
           delete next[id]
@@ -494,6 +502,15 @@ export function useExtensionMessages(
         const id = msg.id as number
         const dir = msg.dir as string
         setAgentWorkingDirs((prev) => ({ ...prev, [id]: dir }))
+      } else if (msg.type === 'agentTokenUsage') {
+        const id = msg.id as number
+        setAgentTokens((prev) => ({
+          ...prev,
+          [id]: {
+            input: msg.totalInput as number,
+            output: msg.totalOutput as number,
+          },
+        }))
       }
     }
     window.addEventListener('message', handler)
@@ -501,5 +518,5 @@ export function useExtensionMessages(
     return () => window.removeEventListener('message', handler)
   }, [getOfficeState])
 
-  return { agents, selectedAgent, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets, workspaceFolders, agentMessages, agentNames, agentSources, updateAgentName, agentWorkingDirs, sendAgentMessage, handlePermissionAction }
+  return { agents, selectedAgent, agentTools, agentStatuses, subagentTools, subagentCharacters, layoutReady, loadedAssets, workspaceFolders, agentMessages, agentNames, agentSources, updateAgentName, agentWorkingDirs, agentTokens, sendAgentMessage, handlePermissionAction }
 }
