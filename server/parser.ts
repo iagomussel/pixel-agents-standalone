@@ -134,6 +134,12 @@ function startPermissionTimer(
   );
 }
 
+export function clearAgentTimers(agentId: number): void {
+  cancelTimer(agentId, waitingTimers);
+  cancelTimer(agentId, permissionTimers);
+  cancelTimer(agentId, idleTimeoutTimers);
+}
+
 export function processTranscriptLine(
   line: string,
   agent: TrackedAgent,

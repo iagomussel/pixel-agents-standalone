@@ -6,7 +6,7 @@ import { homedir } from "os";
 import { fileURLToPath } from "url";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { JsonlWatcher, type WatchedFile } from "./watcher.js";
-import { processTranscriptLine } from "./parser.js";
+import { processTranscriptLine, clearAgentTimers } from "./parser.js";
 import {
   loadCharacterSprites,
   loadWallTiles,
@@ -77,8 +77,43 @@ const persistedSeats = loadPersistedSeats();
 
 // Express app
 const app = express();
+app.use(express.json({ limit: "5mb" }));
 // Serve production build
 app.use(express.static(join(__dirname, "public")));
+
+// Health check
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok", agents: agents.size, clients: clients.size, uptime: Math.floor(process.uptime()) });
+});
+
+// Layout export
+app.get("/api/layout", (_req, res) => {
+  if (!currentLayout) {
+    res.status(404).json({ error: "No layout saved yet" });
+    return;
+  }
+  res.setHeader("Content-Disposition", "attachment; filename=pixel-agents-layout.json");
+  res.json(currentLayout);
+});
+
+// Layout import
+app.post("/api/layout", (req, res) => {
+  const layout = req.body as Record<string, unknown>;
+  if (!layout || typeof layout !== "object") {
+    res.status(400).json({ error: "Invalid layout" });
+    return;
+  }
+  try {
+    mkdirSync(persistDir, { recursive: true });
+    writeFileSync(persistedLayoutPath, JSON.stringify(layout, null, 2));
+    currentLayout = layout;
+    broadcast({ type: "layoutLoaded", layout, version: 1 });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(`[Server] Failed to import layout: ${err instanceof Error ? err.message : err}`);
+    res.status(500).json({ error: "Failed to save layout" });
+  }
+});
 
 const server = createServer(app);
 
@@ -237,6 +272,7 @@ watcher.on("fileRemoved", (file: WatchedFile) => {
   const agent = agents.get(file.sessionId);
   if (!agent) return;
 
+  clearAgentTimers(agent.id);
   agents.delete(file.sessionId);
   broadcast({ type: "agentClosed", id: agent.id });
   console.log(`Agent ${agent.id} left: ${agent.projectName}`);

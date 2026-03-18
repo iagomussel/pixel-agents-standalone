@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { SettingsModal } from './SettingsModal.js'
+import { ShortcutsModal } from './ShortcutsModal.js'
 import type { WorkspaceFolder } from '../hooks/useExtensionMessages.js'
 import { vscode } from '../vscodeApi.js'
+import { onConnectionChange } from '../wsApi.js'
 
 interface BottomToolbarProps {
   isEditMode: boolean
@@ -54,9 +56,13 @@ export function BottomToolbar({
 }: BottomToolbarProps) {
   const [hovered, setHovered] = useState<string | null>(null)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false)
   const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false)
   const [hoveredFolder, setHoveredFolder] = useState<number | null>(null)
+  const [isConnected, setIsConnected] = useState(true)
   const folderPickerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => onConnectionChange(setIsConnected), [])
 
   // Close folder picker on outside click
   useEffect(() => {
@@ -186,6 +192,38 @@ export function BottomToolbar({
           onToggleDebugMode={onToggleDebugMode}
         />
       </div>
+      <button
+        onClick={() => setIsShortcutsOpen((v) => !v)}
+        onMouseEnter={() => setHovered('shortcuts')}
+        onMouseLeave={() => setHovered(null)}
+        style={{
+          ...btnBase,
+          padding: '5px 10px',
+          background: isShortcutsOpen
+            ? 'var(--pixel-active-bg)'
+            : hovered === 'shortcuts'
+              ? 'var(--pixel-btn-hover-bg)'
+              : btnBase.background,
+          border: isShortcutsOpen ? '2px solid var(--pixel-accent)' : '2px solid transparent',
+        }}
+        title="Keyboard shortcuts (?)"
+      >
+        ?
+      </button>
+      {!isConnected && (
+        <div
+          title="Reconnecting to server..."
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: '#f87171',
+            flexShrink: 0,
+            boxShadow: '0 0 4px #f87171',
+          }}
+        />
+      )}
+      <ShortcutsModal isOpen={isShortcutsOpen} onClose={() => setIsShortcutsOpen(false)} />
     </div>
   )
 }

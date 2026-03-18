@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { vscode } from '../vscodeApi.js'
 import { isSoundEnabled, setSoundEnabled } from '../notificationSound.js'
+import { API_BASE } from '../wsApi.js'
+import { vscode } from '../vscodeApi.js'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -107,9 +108,21 @@ export function SettingsModal({ isOpen, onClose, isDebugMode, onToggleDebugMode 
           Open Sessions Folder
         </button>
         <button
-          onClick={() => {
-            vscode.postMessage({ type: 'exportLayout' })
+          onClick={async () => {
             onClose()
+            try {
+              const res = await fetch(`${API_BASE}/api/layout`)
+              if (!res.ok) throw new Error(await res.text())
+              const blob = await res.blob()
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = 'pixel-agents-layout.json'
+              a.click()
+              URL.revokeObjectURL(url)
+            } catch (err) {
+              console.error('Export failed:', err)
+            }
           }}
           onMouseEnter={() => setHovered('export')}
           onMouseLeave={() => setHovered(null)}
@@ -122,8 +135,27 @@ export function SettingsModal({ isOpen, onClose, isDebugMode, onToggleDebugMode 
         </button>
         <button
           onClick={() => {
-            vscode.postMessage({ type: 'importLayout' })
             onClose()
+            const input = document.createElement('input')
+            input.type = 'file'
+            input.accept = '.json'
+            input.onchange = async () => {
+              const file = input.files?.[0]
+              if (!file) return
+              try {
+                const text = await file.text()
+                const layout = JSON.parse(text)
+                const res = await fetch(`${API_BASE}/api/layout`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(layout),
+                })
+                if (!res.ok) throw new Error(await res.text())
+              } catch (err) {
+                console.error('Import failed:', err)
+              }
+            }
+            input.click()
           }}
           onMouseEnter={() => setHovered('import')}
           onMouseLeave={() => setHovered(null)}

@@ -114,6 +114,11 @@ export class JsonlWatcher extends EventEmitter {
   private readNewLines(file: WatchedFile): void {
     try {
       const stat = statSync(file.path);
+      // Handle file truncation (e.g. log rotation)
+      if (stat.size < file.offset) {
+        file.offset = 0;
+        file.lineBuffer = "";
+      }
       if (stat.size <= file.offset) return;
 
       const buf = Buffer.alloc(stat.size - file.offset);
