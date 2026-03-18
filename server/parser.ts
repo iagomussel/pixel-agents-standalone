@@ -2,7 +2,7 @@ import * as path from "path";
 import type { TrackedAgent, ServerMessage } from "./types.js";
 
 const READING_TOOLS = new Set(["Read", "Grep", "Glob", "WebFetch", "WebSearch"]);
-const PERMISSION_EXEMPT_TOOLS = new Set(["Task", "AskUserQuestion"]);
+const PERMISSION_EXEMPT_TOOLS = new Set(["Task", "Agent", "AskUserQuestion"]);
 const PERMISSION_TIMER_DELAY_MS = 7000;
 const TEXT_IDLE_DELAY_MS = 5000;
 const TOOL_DONE_DELAY_MS = 300;
@@ -36,7 +36,8 @@ function formatToolStatus(toolName: string, input: Record<string, unknown>): str
       return "Fetching web content";
     case "WebSearch":
       return "Searching the web";
-    case "Task": {
+    case "Task":
+    case "Agent": {
       const desc = typeof input.description === "string" ? input.description : "";
       return desc
         ? `Subtask: ${desc.length > TASK_DESCRIPTION_DISPLAY_MAX_LENGTH ? desc.slice(0, TASK_DESCRIPTION_DISPLAY_MAX_LENGTH) + "\u2026" : desc}`
@@ -235,8 +236,9 @@ function handleUserMessage(
         if (block.type === "tool_result" && block.tool_use_id) {
           const completedToolId = block.tool_use_id as string;
 
-          // If completed tool was a Task, clear its subagent tools
-          if (agent.activeToolNames.get(completedToolId) === "Task") {
+          // If completed tool was a Task/Agent, clear its subagent tools
+          const completedToolName = agent.activeToolNames.get(completedToolId);
+          if (completedToolName === "Task" || completedToolName === "Agent") {
             agent.activeSubagentToolIds.delete(completedToolId);
             agent.activeSubagentToolNames.delete(completedToolId);
             emit({
@@ -323,8 +325,9 @@ function handleProgressMessage(
     return;
   }
 
-  // Only handle subagent progress for Task tools
-  if (agent.activeToolNames.get(parentToolId) !== "Task") return;
+  // Only handle subagent progress for Task/Agent tools
+  const parentToolName = agent.activeToolNames.get(parentToolId);
+  if (parentToolName !== "Task" && parentToolName !== "Agent") return;
 
   const msg = data.message as Record<string, unknown> | undefined;
   if (!msg) return;
