@@ -611,7 +611,7 @@ watcher.on("line", (file: WatchedFile, line: string) => {
 watcher.start();
 server.listen(PORT, () => {
   console.log(`Pixel Agents server running at http://localhost:${PORT}`);
-  console.log(`Watching Claude and Codex session directories for active agents...`);
+  console.log(`Watching session directories (Claude, Codex, Gemini) for active agents...`);
 });
 
 // Idle shutdown
