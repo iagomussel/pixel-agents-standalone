@@ -1,0 +1,9 @@
+{
+  "worktree": {
+    "symlinkDirectories": [
+      "node_modules",
+      "webview-ui/node_modules",
+      "dist"
+    ]
+  }
+}

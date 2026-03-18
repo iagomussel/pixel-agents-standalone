@@ -20,7 +20,6 @@ interface ToolOverlayProps {
   onRenameAgent: (id: number, name: string) => void
 }
 
-/** Derive a short human-readable activity string from tools/status */
 function getActivityText(
   agentId: number,
   agentTools: Record<number, ToolActivity[]>,
@@ -28,19 +27,16 @@ function getActivityText(
 ): string {
   const tools = agentTools[agentId]
   if (tools && tools.length > 0) {
-    // Find the latest non-done tool
     const activeTool = [...tools].reverse().find((t) => !t.done)
     if (activeTool) {
       if (activeTool.permissionWait) return 'Needs approval'
       return activeTool.status
     }
-    // All tools done but agent still active (mid-turn) — keep showing last tool status
     if (isActive) {
       const lastTool = tools[tools.length - 1]
       if (lastTool) return lastTool.status
     }
   }
-
   return 'Idle'
 }
 
@@ -83,7 +79,6 @@ export function ToolOverlay({
   const selectedId = officeState.selectedAgentId
   const hoveredId = officeState.hoveredAgentId
 
-  // All character IDs
   const allIds = [...agents, ...subagentCharacters.map((s) => s.id)]
 
   return (
@@ -95,45 +90,29 @@ export function ToolOverlay({
         const isSelected = selectedId === id
         const isHovered = hoveredId === id
         const isSub = ch.isSubagent
-        const showDetails = isSelected || isHovered
+        const hasPermission = ch.bubbleType === 'permission'
+        const isWaiting = ch.bubbleType === 'waiting'
 
-        // Position above character
         const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0
         const screenX = (deviceOffsetX + ch.x * zoom) / dpr
         const screenY = (deviceOffsetY + (ch.y + sittingOffset - TOOL_OVERLAY_VERTICAL_OFFSET) * zoom) / dpr
 
-        // Custom name takes priority, then folderName, then default
         const displayName = agentNames[id] || ch.folderName || (isSub ? 'Subtask' : `Agent #${id}`)
 
-        // Get activity text (only needed when showing details)
-        let activityText = ''
-        let dotColor: string | null = null
-        if (showDetails) {
-          const subHasPermission = isSub && ch.bubbleType === 'permission'
-          if (isSub) {
-            if (subHasPermission) {
-              activityText = 'Needs approval'
-            } else {
-              const sub = subagentCharacters.find((s) => s.id === id)
-              activityText = sub ? sub.label : 'Subtask'
-            }
-          } else {
-            activityText = getActivityText(id, agentTools, ch.isActive)
-          }
+        const tools = agentTools[isSub ? (ch.parentAgentId ?? id) : id]
+        const hasActiveTools = tools?.some((t) => !t.done)
+        const hasPermissionTool = tools?.some((t) => t.permissionWait && !t.done)
+        const dotColor = (hasPermission || hasPermissionTool)
+          ? 'var(--pixel-status-permission)'
+          : (ch.isActive && hasActiveTools)
+            ? 'var(--pixel-status-active)'
+            : null
 
-          const tools = agentTools[id]
-          const hasPermission = subHasPermission || tools?.some((t) => t.permissionWait && !t.done)
-          const hasActiveTools = tools?.some((t) => !t.done)
-          const isActive = ch.isActive
+        const activityText = isSub
+          ? (hasPermission ? 'Needs approval' : (subagentCharacters.find((s) => s.id === id)?.label ?? 'Subtask'))
+          : getActivityText(isSub ? (ch.parentAgentId ?? id) : id, agentTools, ch.isActive)
 
-          if (hasPermission) {
-            dotColor = 'var(--pixel-status-permission)'
-          } else if (isActive && hasActiveTools) {
-            dotColor = 'var(--pixel-status-active)'
-          }
-        }
-
-        // When selected, show the full chat dialog instead of plain info box
+        // Full chat dialog when selected
         if (isSelected) {
           return (
             <AgentChatDialog
@@ -153,22 +132,67 @@ export function ToolOverlay({
           )
         }
 
-        return (
-          <div
-            key={id}
-            style={{
-              position: 'absolute',
-              left: screenX,
-              top: screenY - 24,
-              transform: 'translateX(-50%)',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              pointerEvents: 'none',
-              zIndex: isHovered ? 'var(--pixel-overlay-selected-z)' : 'var(--pixel-overlay-z)',
-            }}
-          >
-            {isHovered ? (
+        // Auto-appearing permission/waiting dialog when not selected
+        if ((hasPermission || hasPermissionTool) && !isSub) {
+          return (
+            <div
+              key={id}
+              style={{
+                position: 'absolute',
+                left: screenX,
+                top: screenY - 24,
+                transform: 'translateX(-50%)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                pointerEvents: 'none',
+                zIndex: 'var(--pixel-overlay-selected-z)' as unknown as number,
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: 'var(--pixel-bg)',
+                  border: '2px solid var(--pixel-status-permission)',
+                  padding: '4px 10px',
+                  boxShadow: '0 0 8px var(--pixel-status-permission)',
+                  whiteSpace: 'nowrap',
+                  animation: 'pixel-agents-pulse 1.2s ease-in-out infinite',
+                }}
+              >
+                <span style={{ fontSize: '18px' }}>🔒</span>
+                <div>
+                  <span style={{ fontSize: '20px', color: 'var(--pixel-status-permission)', display: 'block' }}>
+                    Needs approval
+                  </span>
+                  <span style={{ fontSize: '14px', color: 'var(--pixel-text-dim)', display: 'block' }}>
+                    {displayName} · click to view
+                  </span>
+                </div>
+              </div>
+            </div>
+          )
+        }
+
+        // Compact status bubble for waiting agents
+        if (isWaiting && !isSub) {
+          return (
+            <div
+              key={id}
+              style={{
+                position: 'absolute',
+                left: screenX,
+                top: screenY - 24,
+                transform: 'translateX(-50%)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                pointerEvents: 'none',
+                zIndex: 'var(--pixel-overlay-z)' as unknown as number,
+              }}
+            >
               <div
                 style={{
                   display: 'flex',
@@ -176,7 +200,49 @@ export function ToolOverlay({
                   gap: 5,
                   background: 'var(--pixel-bg)',
                   border: '2px solid var(--pixel-border)',
-                  borderRadius: 0,
+                  padding: '3px 8px',
+                  boxShadow: 'var(--pixel-shadow)',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <span style={{ fontSize: '18px' }}>💬</span>
+                <div>
+                  <span style={{ fontSize: '20px', color: 'var(--vscode-foreground)', display: 'block' }}>
+                    Waiting for input
+                  </span>
+                  <span style={{ fontSize: '14px', color: 'var(--pixel-text-dim)', display: 'block' }}>
+                    {displayName} · click to chat
+                  </span>
+                </div>
+              </div>
+            </div>
+          )
+        }
+
+        // Hover state: show compact info box
+        if (isHovered) {
+          return (
+            <div
+              key={id}
+              style={{
+                position: 'absolute',
+                left: screenX,
+                top: screenY - 24,
+                transform: 'translateX(-50%)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                pointerEvents: 'none',
+                zIndex: 'var(--pixel-overlay-selected-z)' as unknown as number,
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  background: 'var(--pixel-bg)',
+                  border: '2px solid var(--pixel-border)',
                   padding: '3px 8px',
                   boxShadow: 'var(--pixel-shadow)',
                   whiteSpace: 'nowrap',
@@ -186,13 +252,7 @@ export function ToolOverlay({
                 {dotColor && (
                   <span
                     className={ch.isActive && dotColor !== 'var(--pixel-status-permission)' ? 'pixel-agents-pulse' : undefined}
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: '50%',
-                      background: dotColor,
-                      flexShrink: 0,
-                    }}
+                    style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor, flexShrink: 0 }}
                   />
                 )}
                 <div style={{ overflow: 'hidden' }}>
@@ -210,37 +270,54 @@ export function ToolOverlay({
                   </span>
                   <span
                     style={{
-                      fontSize: '16px',
+                      fontSize: '14px',
                       color: 'var(--pixel-text-dim)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
                       display: 'block',
                     }}
                   >
-                    {displayName}
+                    {displayName} · click to open chat
                   </span>
                 </div>
               </div>
-            ) : (
-              <div
-                style={{
-                  background: 'var(--pixel-bg)',
-                  border: '1px solid var(--pixel-border)',
-                  padding: '1px 6px',
-                  boxShadow: 'var(--pixel-shadow)',
-                  whiteSpace: 'nowrap',
-                }}
-              >
+            </div>
+          )
+        }
+
+        // Default: small name tag
+        return (
+          <div
+            key={id}
+            style={{
+              position: 'absolute',
+              left: screenX,
+              top: screenY - 24,
+              transform: 'translateX(-50%)',
+              pointerEvents: 'none',
+              zIndex: 'var(--pixel-overlay-z)' as unknown as number,
+            }}
+          >
+            <div
+              style={{
+                background: 'var(--pixel-bg)',
+                border: '1px solid var(--pixel-border)',
+                padding: '1px 6px',
+                boxShadow: 'var(--pixel-shadow)',
+                whiteSpace: 'nowrap',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              {dotColor && (
                 <span
-                  style={{
-                    fontSize: '16px',
-                    color: 'var(--pixel-text-dim)',
-                  }}
-                >
-                  {displayName}
-                </span>
-              </div>
-            )}
+                  className={ch.isActive ? 'pixel-agents-pulse' : undefined}
+                  style={{ width: 5, height: 5, borderRadius: '50%', background: dotColor, flexShrink: 0 }}
+                />
+              )}
+              <span style={{ fontSize: '16px', color: 'var(--pixel-text-dim)' }}>
+                {displayName}
+              </span>
+            </div>
           </div>
         )
       })}
